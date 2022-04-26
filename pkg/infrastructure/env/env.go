@@ -6,7 +6,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-func GetEnvironmentVariableOrDefault(log zerolog.Logger, envVar, defaultValue string) string {
+func GetVariableOrDefault(log zerolog.Logger, envVar, defaultValue string) string {
 	value := os.Getenv(envVar)
 	if value == "" {
 		return defaultValue
@@ -14,7 +14,7 @@ func GetEnvironmentVariableOrDefault(log zerolog.Logger, envVar, defaultValue st
 	return value
 }
 
-func GetEnvironmentVariableOrDie(log zerolog.Logger, envVar, description string) string {
+func GetVariableOrDie(log zerolog.Logger, envVar, description string) string {
 	value := os.Getenv(envVar)
 	if value == "" {
 		log.Fatal().Msgf("please set %s to a valid %s.", envVar, description)
