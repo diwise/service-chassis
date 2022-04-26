@@ -9,6 +9,18 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+func Init(ctx context.Context, serviceName, serviceVersion string) (context.Context, zerolog.Logger, tracing.CleanupFunc) {
+	ctx, logger := logging.NewLogger(ctx, serviceName, serviceVersion)
+	logger.Info().Msg("starting up ...")
+
+	cleanup, err := tracing.Init(ctx, logger, serviceName, serviceVersion)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to init tracing")
+	}
+
+	return ctx, logger, cleanup
+}
+
 func AddTraceIDToLoggerAndStoreInContext(span trace.Span, logger zerolog.Logger, ctx context.Context) (string, context.Context, zerolog.Logger) {
 	log := logger
 	traceID, ok := tracing.ExtractTraceID(span)
