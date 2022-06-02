@@ -71,3 +71,41 @@ func newResource(serviceName, version string) *resource.Resource {
 		semconv.ServiceVersionKey.String(version),
 	)
 }
+
+type headersCarrier map[string]interface{}
+
+func (a headersCarrier) Get(key string) string {
+	v, ok := a[key]
+	if !ok {
+		return ""
+	}
+	return v.(string)
+}
+
+func (a headersCarrier) Set(key string, value string) {
+	a[key] = value
+}
+
+func (a headersCarrier) Keys() []string {
+	i := 0
+	r := make([]string, len(a))
+
+	for k := range a {
+		r[i] = k
+		i++
+	}
+
+	return r
+}
+
+// InjectHeaders injects the tracing info from the context into a new header map
+func InjectHeaders(ctx context.Context) map[string]interface{} {
+	h := make(headersCarrier)
+	otel.GetTextMapPropagator().Inject(ctx, h)
+	return h
+}
+
+// ExtractHeaders extracts the tracing info from the header and puts it into the context
+func ExtractHeaders(ctx context.Context, headers map[string]interface{}) context.Context {
+	return otel.GetTextMapPropagator().Extract(ctx, headersCarrier(headers))
+}
