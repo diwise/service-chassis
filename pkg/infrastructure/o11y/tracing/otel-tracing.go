@@ -38,7 +38,7 @@ func Init(ctx context.Context, logger zerolog.Logger, serviceName, serviceVersio
 
 		cleanupFunc = func() {
 			if err := tracerProvider.Shutdown(ctx); err != nil {
-				logger.Fatal().Msgf("stopping tracer provider: %v", err)
+				logger.Error().Err(err).Msg("error while stopping tracer provider")
 			}
 		}
 	}
