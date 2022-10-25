@@ -1,8 +1,10 @@
 package expects
 
 import (
+	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/matryer/is"
 )
@@ -18,6 +20,21 @@ func RequestBody(body string) func(*is.I, *http.Request) {
 
 		reqString := string(reqBytes)
 		is.Equal(reqString, body)
+	}
+}
+
+func RequestBodyContaining(substrings ...string) func(*is.I, *http.Request) {
+	return func(is *is.I, r *http.Request) {
+		reqBytes, err := io.ReadAll(r.Body)
+		is.NoErr(err)
+
+		reqString := string(reqBytes)
+
+		for _, subs := range substrings {
+			if !strings.Contains(reqString, subs) {
+				is.Equal("expectation", fmt.Sprintf("request body does not contain %s", subs))
+			}
+		}
 	}
 }
 
