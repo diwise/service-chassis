@@ -4,18 +4,31 @@ import (
 	"context"
 
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/metrics"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/tracing"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/trace"
 )
 
-func Init(ctx context.Context, serviceName, serviceVersion string) (context.Context, zerolog.Logger, tracing.CleanupFunc) {
+type CleanupFunc func()
+
+func Init(ctx context.Context, serviceName, serviceVersion string) (context.Context, zerolog.Logger, CleanupFunc) {
 	ctx, logger := logging.NewLogger(ctx, serviceName, serviceVersion)
 	logger.Info().Msg("starting up ...")
 
-	cleanup, err := tracing.Init(ctx, logger, serviceName, serviceVersion)
+	cleanupMetrics, err := metrics.Init(ctx, logger, serviceName, serviceVersion)
+	if err != nil {
+		logger.Fatal().Err(err).Msg("failed to init metrics")
+	}
+
+	cleanupTracing, err := tracing.Init(ctx, logger, serviceName, serviceVersion)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to init tracing")
+	}
+
+	cleanup := func() {
+		cleanupMetrics()
+		cleanupTracing()
 	}
 
 	return ctx, logger, cleanup
