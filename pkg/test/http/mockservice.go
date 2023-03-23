@@ -3,16 +3,19 @@ package http
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 
 	"github.com/matryer/is"
 )
 
 func NewMockServiceThat(expects func(r *http.Request), returns func(w http.ResponseWriter)) MockService {
 
-	mock := &mockSvc{}
+	mock := &mockSvc{
+		requestCount: &atomic.Int32{},
+	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mock.requestCount++
+		mock.requestCount.Add(1)
 		expects(r)
 		returns(w)
 	}))
@@ -29,7 +32,7 @@ type MockService interface {
 }
 
 type mockSvc struct {
-	requestCount int
+	requestCount *atomic.Int32
 	server       *httptest.Server
 	closed       bool
 }
@@ -42,7 +45,7 @@ func (m *mockSvc) Close() {
 }
 
 func (m *mockSvc) RequestCount() int {
-	return m.requestCount
+	return int(m.requestCount.Load())
 }
 
 func (m *mockSvc) URL() string {
