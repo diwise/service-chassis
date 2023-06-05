@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
-	"go.opentelemetry.io/otel/metric/global"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
@@ -43,7 +43,7 @@ func Init(ctx context.Context, logger zerolog.Logger, serviceName, serviceVersio
 			}
 		}
 
-		global.SetMeterProvider(meterProvider)
+		otel.SetMeterProvider(meterProvider)
 	}
 
 	return cleanupFunc, nil
