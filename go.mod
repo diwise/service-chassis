@@ -3,10 +3,10 @@ module github.com/diwise/service-chassis
 go 1.20
 
 require (
-	github.com/go-chi/chi/v5 v5.0.8
+	github.com/go-chi/chi/v5 v5.0.10
 	github.com/matryer/is v1.4.1
-	github.com/prometheus/client_golang v1.15.1
-	github.com/rs/zerolog v1.29.1
+	github.com/prometheus/client_golang v1.16.0
+	github.com/rs/zerolog v1.30.0
 	go.opentelemetry.io/otel v1.16.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v0.39.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.16.0
