@@ -1,12 +1,14 @@
 package env
 
 import (
+	"context"
+	"fmt"
 	"os"
 
-	"github.com/rs/zerolog"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
-func GetVariableOrDefault(log zerolog.Logger, envVar, defaultValue string) string {
+func GetVariableOrDefault(ctx context.Context, envVar, defaultValue string) string {
 	value := os.Getenv(envVar)
 	if value == "" {
 		return defaultValue
@@ -14,10 +16,13 @@ func GetVariableOrDefault(log zerolog.Logger, envVar, defaultValue string) strin
 	return value
 }
 
-func GetVariableOrDie(log zerolog.Logger, envVar, description string) string {
+func GetVariableOrDie(ctx context.Context, envVar, description string) string {
 	value := os.Getenv(envVar)
 	if value == "" {
-		log.Fatal().Msgf("please set %s to a valid %s.", envVar, description)
+		logger := logging.GetFromContext(ctx)
+		msg := fmt.Sprintf("please set %s to a valid %s.", envVar, description)
+		logger.Error(msg)
+		panic(msg)
 	}
 	return value
 }
