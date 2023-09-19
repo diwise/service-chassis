@@ -38,6 +38,29 @@ func RequestBodyContaining(substrings ...string) func(*is.I, *http.Request) {
 	}
 }
 
+func RequestHeaderContains(key, expectation string) func(*is.I, *http.Request) {
+	return func(is *is.I, r *http.Request) {
+		allValues, headerExists := r.Header[http.CanonicalHeaderKey(key)]
+		if !headerExists {
+			is.Equal(
+				"expectation",
+				fmt.Sprintf("request does not contain expected header %s", key),
+			)
+		}
+
+		for _, headerValue := range allValues {
+			if strings.EqualFold(headerValue, expectation) {
+				return
+			}
+		}
+
+		is.Equal(
+			"expectation",
+			fmt.Sprintf("request header %s does not contain value %s", key, expectation),
+		)
+	}
+}
+
 func RequestMethod(method string) func(*is.I, *http.Request) {
 	return func(is *is.I, r *http.Request) {
 		is.Equal(r.Method, method)
