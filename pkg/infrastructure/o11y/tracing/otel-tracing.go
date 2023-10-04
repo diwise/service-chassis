@@ -4,7 +4,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/rs/zerolog"
+	"log/slog"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -17,7 +18,7 @@ import (
 
 type CleanupFunc func()
 
-func Init(ctx context.Context, logger zerolog.Logger, serviceName, serviceVersion string) (CleanupFunc, error) {
+func Init(ctx context.Context, logger *slog.Logger, serviceName, serviceVersion string) (CleanupFunc, error) {
 
 	exporterEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	cleanupFunc := func() {}
@@ -26,7 +27,9 @@ func Init(ctx context.Context, logger zerolog.Logger, serviceName, serviceVersio
 		client := otlptracehttp.NewClient()
 		exporter, err := otlptrace.New(ctx, client)
 		if err != nil {
-			logger.Fatal().Msgf("creating OTLP trace exporter: %v", err)
+			msg := "failed to create OTLP trace exporter"
+			logger.Error(msg, "err", err.Error())
+			panic(msg)
 		}
 
 		tracerProvider := sdktrace.NewTracerProvider(
@@ -38,7 +41,7 @@ func Init(ctx context.Context, logger zerolog.Logger, serviceName, serviceVersio
 
 		cleanupFunc = func() {
 			if err := tracerProvider.Shutdown(ctx); err != nil {
-				logger.Error().Err(err).Msg("error while stopping tracer provider")
+				logger.Error("error while stopping tracer provider", "err", err.Error())
 			}
 		}
 	}

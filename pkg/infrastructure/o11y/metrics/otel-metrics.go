@@ -5,7 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/rs/zerolog"
+	"log/slog"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/sdk/metric"
@@ -15,7 +16,7 @@ import (
 
 type CleanupFunc func()
 
-func Init(ctx context.Context, logger zerolog.Logger, serviceName, serviceVersion string) (CleanupFunc, error) {
+func Init(ctx context.Context, logger *slog.Logger, serviceName, serviceVersion string) (CleanupFunc, error) {
 	exporterEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 	cleanupFunc := func() {}
 
@@ -39,7 +40,7 @@ func Init(ctx context.Context, logger zerolog.Logger, serviceName, serviceVersio
 		cleanupFunc = func() {
 			err := meterProvider.Shutdown(ctx)
 			if err != nil {
-				logger.Error().Err(err).Msg("failed to shutdown otel meter provider")
+				logger.Error("failed to shutdown otel meter provider", "err", err.Error())
 			}
 		}
 
