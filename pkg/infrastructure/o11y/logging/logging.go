@@ -13,9 +13,17 @@ type loggerContextKey struct {
 }
 
 var loggerCtxKey = &loggerContextKey{"logger"}
+var logLevel = new(slog.LevelVar)
 
 func NewLogger(ctx context.Context, serviceName, serviceVersion string) (context.Context, *slog.Logger) {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With(
+	logLevel.Set(slog.LevelDebug)
+
+	logger := slog.New(
+		slog.NewJSONHandler(
+			os.Stdout,
+			&slog.HandlerOptions{Level: logLevel},
+		),
+	).With(
 		slog.String("service", strings.ToLower(serviceName)),
 		slog.String("version", serviceVersion),
 	)
@@ -37,4 +45,12 @@ func GetFromContext(ctx context.Context) *slog.Logger {
 	}
 
 	return logger
+}
+
+func LogLevel() slog.Level {
+	return logLevel.Level()
+}
+
+func SetLogLevel(level slog.Level) {
+	logLevel.Set(level)
 }
