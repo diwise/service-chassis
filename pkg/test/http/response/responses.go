@@ -20,6 +20,12 @@ func Body(body []byte) func(w http.ResponseWriter) {
 	}
 }
 
+func BodyFromCallback(callback func() []byte) func(w http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		w.Write(callback())
+	}
+}
+
 func Code(code int) func(w http.ResponseWriter) {
 	return func(w http.ResponseWriter) {
 		w.WriteHeader(code)

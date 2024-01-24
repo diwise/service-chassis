@@ -1,9 +1,11 @@
 package expects
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/matryer/is"
@@ -35,6 +37,33 @@ func RequestBodyContaining(substrings ...string) func(*is.I, *http.Request) {
 				is.Equal("expectation", fmt.Sprintf("request body does not contain %s", subs))
 			}
 		}
+	}
+}
+
+func RequestBodyIsForm(match func(*is.I, url.Values)) func(*is.I, *http.Request) {
+	return func(is *is.I, r *http.Request) {
+		reqBytes, err := io.ReadAll(r.Body)
+		is.NoErr(err)
+		defer r.Body.Close()
+
+		v, err := url.ParseQuery(string(reqBytes))
+		is.NoErr(err)
+
+		match(is, v)
+	}
+}
+
+func RequestBodyOfType[T any](match func(*is.I, T)) func(*is.I, *http.Request) {
+	return func(is *is.I, r *http.Request) {
+		reqBytes, err := io.ReadAll(r.Body)
+		is.NoErr(err)
+		defer r.Body.Close()
+
+		var s T
+		err = json.Unmarshal(reqBytes, &s)
+		is.NoErr(err)
+
+		match(is, s)
 	}
 }
 
