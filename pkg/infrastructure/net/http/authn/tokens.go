@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +34,7 @@ import (
 type PhantomTokenExchange interface {
 	Middleware() func(http.Handler) http.Handler
 	InstallChiHandlers(r *chi.Mux)
+	Connect(ctx context.Context, issuerURL string) error
 	Shutdown()
 }
 
@@ -48,7 +50,6 @@ type phantomTokens struct {
 
 	appRoot string
 
-	configURL    string
 	clientID     string
 	clientSecret string
 
@@ -137,11 +138,10 @@ func WithLoginLogoutEndpoints(loginEndpoint, logoutEndpoint string) func(*phanto
 	}
 }
 
-// WithProvider is used to configure the host and credentials to use when
-// talking to the token server
-func WithProvider(configURL, clientID, clientSecret string) func(*phantomTokens) {
+// WithClientCredentials is used to configure the client name and secret to
+// use when talking to the token server
+func WithClientCredentials(clientID, clientSecret string) func(*phantomTokens) {
 	return func(pt *phantomTokens) {
-		pt.configURL = configURL
 		pt.clientID = clientID
 		pt.clientSecret = clientSecret
 	}
@@ -164,6 +164,7 @@ func NewPhantomTokenExchange(opts ...func(*phantomTokens)) (PhantomTokenExchange
 
 	defaults := []func(*phantomTokens){
 		WithCookieName("id"),
+		WithLogger(slog.New(slog.NewTextHandler(os.Stdout, nil))),
 		WithLoginLogoutEndpoints("/login", "/logout"),
 	}
 
@@ -187,38 +188,43 @@ func NewPhantomTokenExchange(opts ...func(*phantomTokens)) (PhantomTokenExchange
 		WithSecretKey(secretKey)(pt)
 	}
 
-	go func(ctx context.Context) {
-		provider, err := oidc.NewProvider(ctx, pt.configURL)
-		for err != nil {
-			pt.logger.Info("failed to connect to oidc provider", "err", err.Error())
-			time.Sleep(2 * time.Second)
-			provider, err = oidc.NewProvider(ctx, pt.configURL)
-		}
-
-		c := struct {
-			EndpointPAR        string `json:"pushed_authorization_request_endpoint"`
-			EndpointEndSession string `json:"end_session_endpoint"`
-		}{}
-
-		if provider.Claims(&c) == nil {
-			pt.pushedAuthenticationRequestEndpoint = c.EndpointPAR
-			pt.endSessionEndpoint = c.EndpointEndSession
-
-			if pt.pushedAuthenticationRequestEndpoint != "" {
-				pt.logger.Info("PAR endpoint found at " + c.EndpointPAR)
-			}
-		}
-
-		pt.provider = provider
-		pt.oauth2Config = oauth2.Config{
-			ClientID:     pt.clientID,
-			ClientSecret: pt.clientSecret,
-			Endpoint:     provider.Endpoint(),
-			Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
-		}
-	}(pt.providerClientContext(context.Background()))
-
 	return pt, nil
+}
+
+func (pt *phantomTokens) Connect(ctx context.Context, issuerURL string) error {
+	ctx = pt.providerClientContext(ctx)
+
+	provider, err := oidc.NewProvider(ctx, issuerURL)
+	for err != nil {
+		pt.logger.Info("failed to connect to oidc provider", "err", err.Error())
+		time.Sleep(2 * time.Second)
+		provider, err = oidc.NewProvider(ctx, issuerURL)
+	}
+
+	c := struct {
+		EndpointPAR        string `json:"pushed_authorization_request_endpoint"`
+		EndpointEndSession string `json:"end_session_endpoint"`
+	}{}
+
+	if provider.Claims(&c) == nil {
+		if c.EndpointPAR == "" {
+			return fmt.Errorf("issuer at %s does not have required support for PAR", issuerURL)
+		}
+
+		pt.logger.Info("PAR endpoint found at " + c.EndpointPAR)
+		pt.pushedAuthenticationRequestEndpoint = c.EndpointPAR
+		pt.endSessionEndpoint = c.EndpointEndSession
+	}
+
+	pt.provider = provider
+	pt.oauth2Config = oauth2.Config{
+		ClientID:     pt.clientID,
+		ClientSecret: pt.clientSecret,
+		Endpoint:     provider.Endpoint(),
+		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+	}
+
+	return nil
 }
 
 // Shutdown performs any necessary cleanup
@@ -636,14 +642,13 @@ func (pt *phantomTokens) LoginHandler() http.HandlerFunc {
 			return
 		}
 
-		http.Redirect(w, r,
-			fmt.Sprintf("%s?client_id=%s&request_uri=%s",
-				pt.oauth2Config.Endpoint.AuthURL,
-				pt.clientID,
-				url.QueryEscape(requestObject.URI),
-			),
-			http.StatusFound,
+		redirectURI := fmt.Sprintf("%s?client_id=%s&request_uri=%s",
+			pt.oauth2Config.Endpoint.AuthURL,
+			pt.clientID,
+			url.QueryEscape(requestObject.URI),
 		)
+
+		http.Redirect(w, r, redirectURI, http.StatusFound)
 	}
 }
 
@@ -736,8 +741,6 @@ func (pt *phantomTokens) LoginExchangeHandler() http.HandlerFunc {
 			return
 		}
 
-		pt.logger.Info("token response", "body", string(body), "session", sessionID)
-
 		extra := &struct {
 			IDToken          string `json:"id_token"`
 			ExpiresIn        int32  `json:"expires_in"`
@@ -755,6 +758,7 @@ func (pt *phantomTokens) LoginExchangeHandler() http.HandlerFunc {
 		verifier := pt.provider.Verifier(&oidc.Config{ClientID: pt.clientID})
 		_, err = verifier.Verify(ctx, extra.IDToken)
 		if err != nil {
+			pt.logger.Error("failed to verify id token", "err", err.Error(), "session", sessionID)
 			http.Error(w, "failed to verify id token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
