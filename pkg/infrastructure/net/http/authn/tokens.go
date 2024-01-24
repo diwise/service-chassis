@@ -270,7 +270,7 @@ func (pt *phantomTokens) Middleware() func(http.Handler) http.Handler {
 					pt.clearCookie(w)
 					pt.clearSession(cookie.SessionID)
 				} else if token != nil {
-					r.Header.Add("Authorization", token.TokenType+" "+token.AccessToken)
+					r.Header.Set("Authorization", token.TokenType+" "+token.AccessToken)
 				}
 			}
 
