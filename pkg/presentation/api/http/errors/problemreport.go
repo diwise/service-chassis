@@ -80,7 +80,7 @@ func (p *problem) TraceID() string {
 func (p *problem) WriteResponse(w http.ResponseWriter) error {
 	bytes, _ := json.Marshal(p)
 
-	w.Header().Add("ContentType", p.ContentType())
+	w.Header().Add("Content-Type", p.ContentType())
 	w.WriteHeader(p.Code())
 	_, err := w.Write(bytes)
 
