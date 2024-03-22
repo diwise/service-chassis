@@ -1,9 +1,9 @@
 module github.com/diwise/service-chassis
 
-go 1.21
+go 1.22
 
 require (
-	github.com/go-chi/chi/v5 v5.0.11
+	github.com/go-chi/chi/v5 v5.0.12
 	github.com/matryer/is v1.4.1
 	github.com/prometheus/client_golang v1.18.0
 	go.opentelemetry.io/otel v1.21.0
@@ -35,5 +35,5 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20231127180814-3a041ad873d4 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20231127180814-3a041ad873d4 // indirect
 	google.golang.org/grpc v1.59.0 // indirect
-	google.golang.org/protobuf v1.31.0 // indirect
+	google.golang.org/protobuf v1.33.0 // indirect
 )
