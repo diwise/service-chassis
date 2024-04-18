@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 )
@@ -33,7 +32,7 @@ import (
 // of sensitive data to the frontend.
 type PhantomTokenExchange interface {
 	Middleware() func(http.Handler) http.Handler
-	InstallChiHandlers(r *chi.Mux)
+	InstallHandlers(r *http.ServeMux)
 	Connect(ctx context.Context, issuerURL string) error
 	Shutdown()
 }
@@ -71,12 +70,12 @@ type phantomTokens struct {
 	mu       sync.Mutex
 }
 
-// InstallChiHandlers takes a chi Mux and adds route patterns to
+// InstallHandlers takes a http ServeMux and adds route patterns to
 // handle the initiation of login and logout flows from the frontend
-func (pt *phantomTokens) InstallChiHandlers(r *chi.Mux) {
-	r.Get(pt.loginEndpoint, pt.LoginHandler())
-	r.Get(pt.loginEndpoint+"/{id}", pt.LoginExchangeHandler())
-	r.Get(pt.logoutEndpoint, pt.LogoutHandler())
+func (pt *phantomTokens) InstallHandlers(r *http.ServeMux) {
+	r.HandleFunc("GET "+pt.loginEndpoint, pt.LoginHandler())
+	r.HandleFunc("GET "+pt.loginEndpoint+"/{id}", pt.LoginExchangeHandler())
+	r.HandleFunc("GET "+pt.logoutEndpoint, pt.LogoutHandler())
 }
 
 // WithAppRoot sets the fully qualified domain name, port and base path
@@ -474,7 +473,7 @@ var ErrNoSuchSession error = errors.New("no such session")
 var ErrNoToken error = errors.New("session has no token")
 var ErrRefreshTokenExpired error = errors.New("refresh token expired")
 
-func (pt *phantomTokens) sessionLoginState(ctx context.Context, sessionID string) (string, error) {
+func (pt *phantomTokens) sessionLoginState(_ context.Context, sessionID string) (string, error) {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 
@@ -486,7 +485,7 @@ func (pt *phantomTokens) sessionLoginState(ctx context.Context, sessionID string
 	return s.LoginState, nil
 }
 
-func (pt *phantomTokens) sessionPKCEVerifier(ctx context.Context, sessionID string) (string, error) {
+func (pt *phantomTokens) sessionPKCEVerifier(_ context.Context, sessionID string) (string, error) {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 
@@ -498,7 +497,7 @@ func (pt *phantomTokens) sessionPKCEVerifier(ctx context.Context, sessionID stri
 	return s.PKCEVerifier, nil
 }
 
-func (pt *phantomTokens) sessionHasToken(ctx context.Context, sessionID string) bool {
+func (pt *phantomTokens) sessionHasToken(_ context.Context, sessionID string) bool {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 
@@ -554,7 +553,7 @@ func (pt *phantomTokens) sessionToken(ctx context.Context, sessionID string) (ch
 	return result, nil
 }
 
-func (pt *phantomTokens) sessionTokens(ctx context.Context, sessionID, idToken string, token *oauth2.Token) error {
+func (pt *phantomTokens) sessionTokens(_ context.Context, sessionID, idToken string, token *oauth2.Token) error {
 	pt.mu.Lock()
 	defer pt.mu.Unlock()
 

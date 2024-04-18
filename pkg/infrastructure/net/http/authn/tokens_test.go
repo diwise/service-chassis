@@ -14,13 +14,12 @@ import (
 	testutil "github.com/diwise/service-chassis/pkg/test/http"
 	"github.com/diwise/service-chassis/pkg/test/http/expects"
 	"github.com/diwise/service-chassis/pkg/test/http/response"
-	"github.com/go-chi/chi/v5"
 	"github.com/matryer/is"
 )
 
 func TestA(t *testing.T) {
 	is_ := is.New(t)
-	r := chi.NewRouter()
+	r := http.NewServeMux()
 
 	var ms testutil.MockService
 	var authmock testutil.MockService
@@ -97,7 +96,7 @@ func TestA(t *testing.T) {
 
 	pte.Connect(context.Background(), ms.URL())
 
-	pte.InstallChiHandlers(r)
+	pte.InstallHandlers(r)
 
 	server := httptest.NewServer(r)
 	defer server.Close()
@@ -163,7 +162,7 @@ func tokenResponse(issuer string) []byte {
 	return []byte(response)
 }
 
-func testRequest(is *is.I, ts *httptest.Server, method, path string, body io.Reader) (*http.Response, string) {
+func testRequest(_ *is.I, ts *httptest.Server, method, path string, body io.Reader) (*http.Response, string) {
 	req, _ := http.NewRequest(method, ts.URL+path, body)
 
 	resp, _ := http.DefaultClient.Do(req)
