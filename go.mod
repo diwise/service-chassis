@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	github.com/coreos/go-oidc/v3 v3.9.0
-	github.com/go-chi/chi/v5 v5.0.11
+	github.com/go-chi/chi/v5 v5.0.12
 	github.com/google/uuid v1.3.1
 	github.com/matryer/is v1.4.1
 	github.com/prometheus/client_golang v1.18.0
