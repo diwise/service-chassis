@@ -59,9 +59,10 @@ type phantomTokens struct {
 
 	secretKey []byte
 
-	provider           *oidc.Provider
-	oauth2Config       oauth2.Config
-	insecureSkipVerify bool
+	provider              *oidc.Provider
+	oauth2Config          oauth2.Config
+	insecureSkipVerify    bool
+	insecureCookieAllowed bool
 
 	endSessionEndpoint                  string
 	pushedAuthenticationRequestEndpoint string
@@ -86,6 +87,10 @@ func WithAppRoot(appRoot string) func(*phantomTokens) {
 			appRoot = appRoot[0 : len(appRoot)-1]
 		}
 		pt.appRoot = appRoot
+
+		if strings.HasPrefix(pt.appRoot, "http://127.0.0.1") {
+			pt.insecureCookieAllowed = true
+		}
 	}
 }
 
@@ -95,7 +100,8 @@ func WithAppRoot(appRoot string) func(*phantomTokens) {
 // See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies#__host-
 func WithCookieName(name string) func(*phantomTokens) {
 	return func(pt *phantomTokens) {
-		pt.cookieName = fmt.Sprintf("__Host-%s", name)
+		cookiePrefix := map[bool]string{false: "__Host-", true: "insecure-"}[pt.insecureCookieAllowed]
+		pt.cookieName = fmt.Sprintf("%s%s", cookiePrefix, name)
 	}
 }
 
@@ -286,7 +292,7 @@ func (pt *phantomTokens) clearCookie(w http.ResponseWriter) {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   !pt.insecureCookieAllowed,
 		SameSite: http.SameSiteStrictMode,
 	}
 
@@ -375,8 +381,12 @@ func (pt *phantomTokens) newCookie(value cookieContents) (*http.Cookie, error) {
 		Name:     pt.cookieName,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   !pt.insecureCookieAllowed,
 		SameSite: http.SameSiteStrictMode,
+	}
+
+	if pt.insecureCookieAllowed {
+		pt.logger.Warn("!!! - INSECURE COOKIE CREATED - !!!")
 	}
 
 	// Create a new AES cipher block from the secret key.
