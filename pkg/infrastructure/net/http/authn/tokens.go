@@ -831,7 +831,8 @@ func (pt *phantomTokens) LogoutHandler() http.HandlerFunc {
 			logoutURL := pt.endSessionEndpoint + "?id_token_hint=" + s.IDToken + "&post_logout_redirect_uri="
 			logoutURL += url.QueryEscape(pt.appRoot)
 
-			http.Redirect(w, r, logoutURL, http.StatusFound)
+			w.Header().Set("Location", logoutURL)
+			w.WriteHeader(http.StatusFound)
 			return
 		}
 
