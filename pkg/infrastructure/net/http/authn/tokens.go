@@ -350,8 +350,10 @@ func (pt *phantomTokens) getCookie(w http.ResponseWriter, r *http.Request) (*coo
 	if err != nil {
 		pt.logger.Error("failed to decrypt and authenticate cookie data", "err", err.Error())
 		pt.clearCookie(w)
-		//w.WriteHeader(http.StatusBadRequest)
-		http.Redirect(w, r, pt.loginEndpoint, http.StatusFound)
+		// Redirect the browser to the login endpoint to attempt a refresh
+		// of the authorization token and cookie
+		path := url.QueryEscape(r.URL.Path)
+		http.Redirect(w, r, pt.loginEndpoint+"?path="+path, http.StatusFound)
 		return nil, err
 	}
 
@@ -598,6 +600,12 @@ func (pt *phantomTokens) LoginHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s := pt.newSession()
 
+		redirectUri := pt.appRoot + pt.loginEndpoint + "/" + s.ID
+		path := r.URL.Query().Get("path")
+		if path != "" {
+			redirectUri = redirectUri + "?path=" + url.QueryEscape(path)
+		}
+
 		par := url.Values{}
 		par.Add("response_type", "code")
 		par.Add("client_id", pt.clientID)
@@ -605,7 +613,7 @@ func (pt *phantomTokens) LoginHandler() http.HandlerFunc {
 		par.Add("state", s.LoginState)
 		par.Add("code_challenge_method", "S256")
 		par.Add("code_challenge", oauth2.S256ChallengeFromVerifier(s.PKCEVerifier))
-		par.Add("redirect_uri", pt.appRoot+pt.loginEndpoint+"/"+s.ID)
+		par.Add("redirect_uri", redirectUri)
 
 		postReq, _ := http.NewRequest(http.MethodPost, pt.pushedAuthenticationRequestEndpoint, strings.NewReader(par.Encode()))
 		postReq.SetBasicAuth(url.QueryEscape(pt.clientID), url.QueryEscape(pt.clientSecret))
@@ -786,8 +794,17 @@ func (pt *phantomTokens) LoginExchangeHandler() http.HandlerFunc {
 			return
 		}
 
+		redirectUri := "/"
+		path := r.URL.Query().Get("path")
+		if path != "" {
+			path, err := url.QueryUnescape(path)
+			if err == nil {
+				redirectUri = path
+			}
+		}
+
 		http.SetCookie(w, newCookie)
-		http.Redirect(w, r, "/", http.StatusFound)
+		http.Redirect(w, r, redirectUri, http.StatusFound)
 	}
 }
 
