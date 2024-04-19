@@ -713,11 +713,17 @@ func (pt *phantomTokens) LoginExchangeHandler() http.HandlerFunc {
 			return
 		}
 
+		redirectUri := pt.appRoot + pt.loginEndpoint + "/" + sessionID
+		path := r.URL.Query().Get("path")
+		if path != "" {
+			redirectUri = redirectUri + "?path=" + path
+		}
+
 		exchange := url.Values{
 			"grant_type":    {"authorization_code"},
 			"code":          {r.URL.Query().Get("code")},
 			"code_verifier": {pkceVerifier},
-			"redirect_uri":  {pt.appRoot + pt.loginEndpoint + "/" + sessionID + "?path=" + r.URL.Query().Get("path")},
+			"redirect_uri":  {redirectUri},
 		}
 
 		postReq, _ := http.NewRequest(http.MethodPost, pt.oauth2Config.Endpoint.TokenURL, strings.NewReader(exchange.Encode()))
@@ -794,8 +800,8 @@ func (pt *phantomTokens) LoginExchangeHandler() http.HandlerFunc {
 			return
 		}
 
-		redirectUri := "/"
-		path := r.URL.Query().Get("path")
+		redirectUri = "/"
+		path = r.URL.Query().Get("path")
 		if path != "" {
 			path, err := url.QueryUnescape(path)
 			if err == nil {
