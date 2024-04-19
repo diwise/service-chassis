@@ -90,6 +90,7 @@ func WithAppRoot(appRoot string) func(*phantomTokens) {
 
 		if strings.HasPrefix(pt.appRoot, "http://localhost") {
 			pt.insecureCookieAllowed = true
+			pt.cookieName = strings.Replace(pt.cookieName, "__Host-", "insecure-", 1)
 		}
 	}
 }
@@ -100,8 +101,7 @@ func WithAppRoot(appRoot string) func(*phantomTokens) {
 // See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies#__host-
 func WithCookieName(name string) func(*phantomTokens) {
 	return func(pt *phantomTokens) {
-		cookiePrefix := map[bool]string{false: "__Host-", true: "insecure-"}[pt.insecureCookieAllowed]
-		pt.cookieName = fmt.Sprintf("%s%s", cookiePrefix, name)
+		pt.cookieName = fmt.Sprintf("__Host-%s", name)
 	}
 }
 
