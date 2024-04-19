@@ -603,7 +603,7 @@ func (pt *phantomTokens) LoginHandler() http.HandlerFunc {
 		redirectUri := pt.appRoot + pt.loginEndpoint + "/" + s.ID
 		path := r.URL.Query().Get("path")
 		if path != "" {
-			redirectUri = redirectUri + "?path=" + url.QueryEscape(path)
+			redirectUri = redirectUri + "?path=" + path
 		}
 
 		par := url.Values{}
@@ -717,7 +717,7 @@ func (pt *phantomTokens) LoginExchangeHandler() http.HandlerFunc {
 			"grant_type":    {"authorization_code"},
 			"code":          {r.URL.Query().Get("code")},
 			"code_verifier": {pkceVerifier},
-			"redirect_uri":  {pt.appRoot + pt.loginEndpoint + "/" + sessionID},
+			"redirect_uri":  {pt.appRoot + pt.loginEndpoint + "/" + sessionID + "?path=" + r.URL.Query().Get("path")},
 		}
 
 		postReq, _ := http.NewRequest(http.MethodPost, pt.oauth2Config.Endpoint.TokenURL, strings.NewReader(exchange.Encode()))
