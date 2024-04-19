@@ -88,7 +88,7 @@ func WithAppRoot(appRoot string) func(*phantomTokens) {
 		}
 		pt.appRoot = appRoot
 
-		if strings.HasPrefix(pt.appRoot, "http://127.0.0.1") {
+		if strings.HasPrefix(pt.appRoot, "http://localhost") {
 			pt.insecureCookieAllowed = true
 		}
 	}
