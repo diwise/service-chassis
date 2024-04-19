@@ -350,7 +350,8 @@ func (pt *phantomTokens) getCookie(w http.ResponseWriter, r *http.Request) (*coo
 	if err != nil {
 		pt.logger.Error("failed to decrypt and authenticate cookie data", "err", err.Error())
 		pt.clearCookie(w)
-		w.WriteHeader(http.StatusBadRequest)
+		//w.WriteHeader(http.StatusBadRequest)
+		http.Redirect(w, r, pt.loginEndpoint, http.StatusFound)
 		return nil, err
 	}
 
