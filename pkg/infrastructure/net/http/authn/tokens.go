@@ -377,12 +377,13 @@ func (pt *phantomTokens) newCookie(value cookieContents) (*http.Cookie, error) {
 
 	// Set httponly, secure and strict samesite mode for our cookies
 	// See https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html#cookies
+	sameSiteMode := map[bool]http.SameSite{false: http.SameSiteStrictMode, true: http.SameSiteLaxMode}[pt.insecureCookieAllowed]
 	cookie := http.Cookie{
 		Name:     pt.cookieName,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   !pt.insecureCookieAllowed,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: sameSiteMode,
 	}
 
 	if pt.insecureCookieAllowed {
