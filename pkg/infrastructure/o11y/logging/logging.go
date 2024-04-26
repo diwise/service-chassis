@@ -32,9 +32,9 @@ func NewLogger(ctx context.Context, serviceName, serviceVersion string) (context
 	return ctx, logger
 }
 
-func NewContextWithLogger(ctx context.Context, logger *slog.Logger) context.Context {
-	ctx = context.WithValue(ctx, loggerCtxKey, logger)
-	return ctx
+func NewContextWithLogger(ctx context.Context, logger *slog.Logger, args ...any) context.Context {
+	logger = logger.With(args...)	
+	return context.WithValue(ctx, loggerCtxKey, logger)
 }
 
 func GetFromContext(ctx context.Context) *slog.Logger {
