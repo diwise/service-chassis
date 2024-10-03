@@ -3,12 +3,11 @@ package metrics
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-func AddHandlers(r *chi.Mux) {
+func AddHandlers(mux *http.ServeMux) {
 
 	h := promhttp.HandlerFor(
 		prometheus.DefaultGatherer,
@@ -18,7 +17,7 @@ func AddHandlers(r *chi.Mux) {
 		},
 	)
 
-	r.Get("/metrics", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, r *http.Request) {
 		h.ServeHTTP(w, r)
 	})
 }
