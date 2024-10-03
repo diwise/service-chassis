@@ -31,3 +31,9 @@ func Code(code int) func(w http.ResponseWriter) {
 		w.WriteHeader(code)
 	}
 }
+
+func Header(key, value string) func(w http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		w.Header().Add(key, value)
+	}
+}
