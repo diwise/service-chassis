@@ -37,7 +37,7 @@ type PhantomTokenExchange interface {
 	Shutdown()
 }
 
-// cookieContents hold the information that is stored in a cookie in the browser
+// cookieContents holds the information that is stored in a cookie in the browser
 type cookieContents struct {
 	SessionID string `json:"session"`
 	SourceIP  string `json:"ip"`
@@ -71,17 +71,20 @@ type phantomTokens struct {
 	mu       sync.Mutex
 }
 
-// InstallHandlers takes a http ServeMux and adds route patterns to
-// handle the initiation of login and logout flows from the frontend
+// InstallHandlers takes a http ServeMux and adds route patterns to handle the
+// initiation of login and logout flows from the frontend.
 func (pt *phantomTokens) InstallHandlers(r *http.ServeMux) {
 	r.HandleFunc("GET "+pt.loginEndpoint, pt.LoginHandler())
 	r.HandleFunc("GET "+pt.loginEndpoint+"/{id}", pt.LoginExchangeHandler())
 	r.HandleFunc("GET "+pt.logoutEndpoint, pt.LogoutHandler())
 }
 
-// WithAppRoot sets the fully qualified domain name, port and base path
-// where this service is exposed
-func WithAppRoot(appRoot string) func(*phantomTokens) {
+type PhantomTokenOption func(*phantomTokens)
+
+// WithAppRoot sets the fully qualified domain name, port and base path where
+// this service is exposed. If the protocol is http and domain is localhost,
+// this function also turns off domain locking for the session cookie.
+func WithAppRoot(appRoot string) PhantomTokenOption {
 	return func(pt *phantomTokens) {
 		for strings.HasSuffix(appRoot, "/") {
 			appRoot = appRoot[0 : len(appRoot)-1]
@@ -90,7 +93,9 @@ func WithAppRoot(appRoot string) func(*phantomTokens) {
 
 		if strings.HasPrefix(pt.appRoot, "http://localhost") {
 			pt.insecureCookieAllowed = true
-			pt.cookieName = strings.Replace(pt.cookieName, "__Host-", "insecure-", 1)
+			if separatorIndex := strings.Index(pt.cookieName, "-"); separatorIndex > 0 {
+				WithCookieName(pt.cookieName[separatorIndex+1:])(pt)
+			}
 		}
 	}
 }
@@ -99,9 +104,13 @@ func WithAppRoot(appRoot string) func(*phantomTokens) {
 // for the session cookie that is created in the browser. The name will automatically
 // be prepended with __Host- to create a "domain locked" cookie.
 // See: https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies#__host-
-func WithCookieName(name string) func(*phantomTokens) {
+func WithCookieName(name string) PhantomTokenOption {
 	return func(pt *phantomTokens) {
-		pt.cookieName = fmt.Sprintf("__Host-%s", name)
+		if !pt.insecureCookieAllowed {
+			pt.cookieName = fmt.Sprintf("__Host-%s", name)
+		} else {
+			pt.cookieName = fmt.Sprintf("insecure-%s", name)
+		}
 	}
 }
 
@@ -109,21 +118,21 @@ func WithCookieName(name string) func(*phantomTokens) {
 // signed certificates by disabling the certificate verification when talking
 // to the token server. Enabling this will cause a WARNING in the logs for each
 // request to the token server. DO NOT put this into production.
-func WithInsecureSkipVerify() func(*phantomTokens) {
+func WithInsecureSkipVerify() PhantomTokenOption {
 	return func(pt *phantomTokens) {
 		pt.insecureSkipVerify = true
 	}
 }
 
 // WithLogger allows the injection of a custom structured logger into the exchange
-func WithLogger(logger *slog.Logger) func(*phantomTokens) {
+func WithLogger(logger *slog.Logger) PhantomTokenOption {
 	return func(pt *phantomTokens) {
 		pt.logger = logger
 	}
 }
 
 // WithLoginLogoutEndpoints allows for overriding the default /login and /logout endpoints
-func WithLoginLogoutEndpoints(loginEndpoint, logoutEndpoint string) func(*phantomTokens) {
+func WithLoginLogoutEndpoints(loginEndpoint, logoutEndpoint string) PhantomTokenOption {
 	mustBeNonEmptyAndNotEndWithSlash := func(ep string) {
 		if len(ep) == 0 {
 			panic("endpoint must not be empty")
@@ -145,7 +154,7 @@ func WithLoginLogoutEndpoints(loginEndpoint, logoutEndpoint string) func(*phanto
 
 // WithClientCredentials is used to configure the client name and secret to
 // use when talking to the token server
-func WithClientCredentials(clientID, clientSecret string) func(*phantomTokens) {
+func WithClientCredentials(clientID, clientSecret string) PhantomTokenOption {
 	return func(pt *phantomTokens) {
 		pt.clientID = clientID
 		pt.clientSecret = clientSecret
@@ -154,7 +163,7 @@ func WithClientCredentials(clientID, clientSecret string) func(*phantomTokens) {
 
 // WithSecretKey specifies the key to use for AES256 encryption of the cookie contents
 // NOTE: This key must be exactly 32 bytes of length or else panic will ensue.
-func WithSecretKey(key []byte) func(*phantomTokens) {
+func WithSecretKey(key []byte) PhantomTokenOption {
 	return func(pt *phantomTokens) {
 		if len(key) != 32 {
 			panic("aes key size must be 32 bytes")
@@ -163,14 +172,30 @@ func WithSecretKey(key []byte) func(*phantomTokens) {
 	}
 }
 
-// NewPhantomTokenExchange constructs and returns a new exchange with a configuration
-// according to the supplied configuration options
-func NewPhantomTokenExchange(opts ...func(*phantomTokens)) (PhantomTokenExchange, error) {
+// WithRandomKey creates a random 32 byte long key to be used for AES256 encryption of
+// the cookie contents.
+func WithRandomKey() PhantomTokenOption {
+	return func(pt *phantomTokens) {
+		// Create a random secret
+		secretKey := make([]byte, 32)
+		_, err := io.ReadFull(rand.Reader, secretKey)
+		if err != nil {
+			panic("failed to create secret: " + err.Error())
+		}
 
-	defaults := []func(*phantomTokens){
+		WithSecretKey(secretKey)(pt)
+	}
+}
+
+// NewPhantomTokenExchange constructs and returns a new exchange with a configuration
+// according to the supplied configuration options.
+func NewPhantomTokenExchange(opts ...PhantomTokenOption) (PhantomTokenExchange, error) {
+
+	defaults := []PhantomTokenOption{
 		WithCookieName("id"),
 		WithLogger(slog.New(slog.NewTextHandler(os.Stdout, nil))),
 		WithLoginLogoutEndpoints("/login", "/logout"),
+		WithRandomKey(),
 	}
 
 	pt := &phantomTokens{
@@ -178,19 +203,8 @@ func NewPhantomTokenExchange(opts ...func(*phantomTokens)) (PhantomTokenExchange
 	}
 
 	opts = append(defaults, opts...)
-
 	for _, opt := range opts {
 		opt(pt)
-	}
-
-	if len(pt.secretKey) == 0 {
-		// Create a random secret if none provided in opts
-		secretKey := make([]byte, 32)
-		_, err := io.ReadFull(rand.Reader, secretKey)
-		if err != nil {
-			return nil, err
-		}
-		WithSecretKey(secretKey)(pt)
 	}
 
 	return pt, nil
@@ -680,9 +694,7 @@ func (pt *phantomTokens) LoginExchangeHandler() http.HandlerFunc {
 
 		ctx := pt.providerClientContext(r.Context())
 
-		// TODO: wait until https://github.com/golang/go/issues/61410 ships
-		urlParts := strings.Split(r.URL.Path, "/")
-		sessionID := urlParts[len(urlParts)-1]
+		sessionID := r.PathValue("id")
 		loginState, err1 := pt.sessionLoginState(ctx, sessionID)
 		pkceVerifier, err2 := pt.sessionPKCEVerifier(ctx, sessionID)
 
