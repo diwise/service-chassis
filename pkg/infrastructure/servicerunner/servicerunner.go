@@ -40,6 +40,9 @@ type runnerCfg struct {
 
 	muxes []*muxCfg
 
+	onInit        func(context.Context) error
+	onInitTimeout time.Duration
+
 	onStarting        func(context.Context) error
 	onStartingTimeout time.Duration
 
@@ -65,6 +68,12 @@ func WithNameAndVersion(name, version string) RunnerConfigFunc {
 func WithStartingTimeout(timeout time.Duration) RunnerConfigFunc {
 	return func(cfg *runnerCfg) {
 		cfg.onStartingTimeout = timeout
+	}
+}
+
+func OnInit(initFunc func(context.Context) error) RunnerConfigFunc {
+	return func(cfg *runnerCfg) {
+		cfg.onInit = initFunc
 	}
 }
 
@@ -273,6 +282,8 @@ func New(ctx context.Context, opts ...RunnerConfigFunc) (context.Context, Runner
 		name:              "anonymous",
 		version:           buildinfo.SourceVersion(),
 		muxes:             make([]*muxCfg, 0, 2),
+		onInit:            noop,
+		onInitTimeout:     30 * time.Second,
 		onStarting:        noop,
 		onStartingTimeout: 30 * time.Second,
 		onRunning:         noop,
@@ -289,6 +300,8 @@ func New(ctx context.Context, opts ...RunnerConfigFunc) (context.Context, Runner
 	}
 
 	ctx, _, r.o11yCleanup = o11y.Init(ctx, r.cfg.name, r.cfg.version)
+
+	r.configError = doHook(ctx, r.cfg.onInit, r.cfg.onInitTimeout)
 
 	for _, muxConf := range r.cfg.muxes {
 		mux := http.NewServeMux()
