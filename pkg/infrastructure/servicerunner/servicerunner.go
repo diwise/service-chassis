@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -13,112 +14,116 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/diwise/service-chassis/pkg/infrastructure/buildinfo"
 	"github.com/diwise/service-chassis/pkg/infrastructure/net/http/handlers"
-	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
 )
 
-type Runner interface {
-	Run(ctx context.Context, worker func(context.Context) error) error
+type runOpts[T any] struct {
+	worker func(context.Context, *T) error
+
+	terminationTimeout time.Duration
 }
 
-type muxCfg struct {
+type Runner[T any] interface {
+	Run(ctx context.Context, options ...func(*runOpts[T])) error
+}
+
+type muxCfg[T any] struct {
 	name   string
 	port   string
 	listen string
 
-	probesEnabled bool
-	probers       map[string]handlers.ServiceProber
-	isAlive       func() error
+	k8sProbesEnabled bool
+	probers          map[string]handlers.ServiceProber
+	isAlive          func() error
 
-	initFunc func(ctx context.Context, identifier, port string, handler *http.ServeMux) error
+	pprofEnabled bool
+
+	initFunc func(ctx context.Context, identifier, port string, svcCfg *T, handler *http.ServeMux) error
 }
 
-type runnerCfg struct {
-	name    string
-	version string
+type runnerCfg[T any] struct {
+	muxes []*muxCfg[T]
 
-	muxes []*muxCfg
-
-	onInit        func(context.Context) error
-	onInitTimeout time.Duration
-
-	onStarting        func(context.Context) error
-	onStartingTimeout time.Duration
-
-	onRunning  func(context.Context) error
-	onShutdown func(context.Context) error
+	onInit              func(context.Context, *T) error
+	initHookTimeout     time.Duration
+	onStarting          func(context.Context, *T) error
+	startingHookTimeout time.Duration
+	onRunning           func(context.Context, *T) error
+	runningHookTimeout  time.Duration
+	onShutdown          func(context.Context, *T) error
+	shutdownHookTimeout time.Duration
 }
 
-type RunnerConfigFunc func(*runnerCfg)
-
-func WithName(name string) RunnerConfigFunc {
-	return func(cfg *runnerCfg) {
-		cfg.name = name
-	}
-}
-
-func WithNameAndVersion(name, version string) RunnerConfigFunc {
-	return func(cfg *runnerCfg) {
-		WithName(name)(cfg)
-		cfg.version = version
-	}
-}
-
-func WithStartingTimeout(timeout time.Duration) RunnerConfigFunc {
-	return func(cfg *runnerCfg) {
-		cfg.onStartingTimeout = timeout
-	}
-}
-
-func OnInit(initFunc func(context.Context) error) RunnerConfigFunc {
-	return func(cfg *runnerCfg) {
+func OnInit[T any](initFunc func(context.Context, *T) error) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
 		cfg.onInit = initFunc
 	}
 }
 
-func OnRunning(runningFunc func(context.Context) error) RunnerConfigFunc {
-	return func(cfg *runnerCfg) {
-		cfg.onRunning = runningFunc
+func WithInitTimeout[T any](timeout time.Duration) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
+		cfg.initHookTimeout = timeout
 	}
 }
 
-func OnStarting(startupFunc func(context.Context) error) RunnerConfigFunc {
-	return func(cfg *runnerCfg) {
+func OnStarting[T any](startupFunc func(context.Context, *T) error) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
 		cfg.onStarting = startupFunc
 	}
 }
 
-func OnShutdown(shutdownFunc func(context.Context) error) RunnerConfigFunc {
-	return func(cfg *runnerCfg) {
+func WithStartingTimeout[T any](tmo time.Duration) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
+		cfg.startingHookTimeout = tmo
+	}
+}
+
+func OnRunning[T any](runningFunc func(context.Context, *T) error) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
+		cfg.onRunning = runningFunc
+	}
+}
+
+func WithRunningTimeout[T any](tmo time.Duration) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
+		cfg.runningHookTimeout = tmo
+	}
+}
+
+func OnShutdown[T any](shutdownFunc func(context.Context, *T) error) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
 		cfg.onShutdown = shutdownFunc
 	}
 }
 
-type MuxConfigFunc func(*muxCfg)
+func WithShutdownTimeout[T any](tmo time.Duration) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
+		cfg.shutdownHookTimeout = tmo
+	}
+}
 
-func WithListenAddr(listen string) MuxConfigFunc {
-	return func(cfg *muxCfg) {
+func WithListenAddr[T any](listen string) func(*muxCfg[T]) {
+	return func(cfg *muxCfg[T]) {
 		cfg.listen = listen
 	}
 }
 
-func WithPort(port string) MuxConfigFunc {
-	return func(cfg *muxCfg) {
+func WithPort[T any](port string) func(*muxCfg[T]) {
+	return func(cfg *muxCfg[T]) {
 		cfg.port = port
 	}
 }
 
-func WithK8SLivenessProbe(isAlive func() error) MuxConfigFunc {
-	return func(cfg *muxCfg) {
-		cfg.probesEnabled = true
+func WithK8SLivenessProbe[T any](isAlive func() error) func(*muxCfg[T]) {
+	return func(cfg *muxCfg[T]) {
+		cfg.k8sProbesEnabled = true
 		cfg.isAlive = isAlive
 	}
 }
 
-func WithK8SReadinessProbes(probers map[string]handlers.ServiceProber) MuxConfigFunc {
-	return func(cfg *muxCfg) {
-		cfg.probesEnabled = true
+func WithK8SReadinessProbes[T any](probers map[string]handlers.ServiceProber) func(*muxCfg[T]) {
+	return func(cfg *muxCfg[T]) {
+		cfg.k8sProbesEnabled = true
 		cfg.probers = map[string]handlers.ServiceProber{}
 
 		for name, prober := range probers {
@@ -127,21 +132,30 @@ func WithK8SReadinessProbes(probers map[string]handlers.ServiceProber) MuxConfig
 	}
 }
 
-func OnMuxInit(initFunc func(ctx context.Context, identifier, port string, handler *http.ServeMux) error) MuxConfigFunc {
-	return func(cfg *muxCfg) {
+func WithPPROF[T any]() func(*muxCfg[T]) {
+	return func(cfg *muxCfg[T]) {
+		cfg.pprofEnabled = true
+	}
+}
+
+func OnMuxInit[T any](initFunc func(ctx context.Context, identifier, port string, svcCfg *T, handler *http.ServeMux) error) func(*muxCfg[T]) {
+	return func(cfg *muxCfg[T]) {
 		cfg.initFunc = initFunc
 	}
 }
 
-func WithHTTPServeMux(identifer string, opts ...MuxConfigFunc) RunnerConfigFunc {
-	return func(cfg *runnerCfg) {
-		mcfg := &muxCfg{
-			name:          identifer,
-			listen:        "0.0.0.0",
-			port:          "0",
-			probesEnabled: false,
-			isAlive:       func() error { return nil },
-			initFunc:      func(ctx context.Context, identifier, port string, handler *http.ServeMux) error { return nil },
+func WithHTTPServeMux[T any](identifer string, opts ...func(*muxCfg[T])) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
+		mcfg := &muxCfg[T]{
+			name:             identifer,
+			listen:           "127.0.0.1",
+			port:             "0",
+			pprofEnabled:     false,
+			k8sProbesEnabled: false,
+			isAlive:          func() error { return nil },
+			initFunc: func(ctx context.Context, identifier, port string, svcCfg *T, handler *http.ServeMux) error {
+				return nil
+			},
 		}
 
 		for _, option := range opts {
@@ -158,22 +172,28 @@ type httpSrvr struct {
 	server   *http.Server
 }
 
-type runner struct {
-	cfg *runnerCfg
+type runner[T any] struct {
+	cfg    *runnerCfg[T]
+	svcCfg *T
 
 	httpServers []*httpSrvr
 
 	configError error
-	o11yCleanup o11y.CleanupFunc
 }
 
-func doHook(ctx context.Context, hook func(context.Context) error, timeout time.Duration) (err error) {
+func doHook[T any](ctx context.Context, hook func(context.Context, *T) error, svcCfg *T, timeout time.Duration) (err error) {
 	hookResult := make(chan error)
 	hookContext, hookDone := context.WithTimeout(ctx, timeout)
 
 	go func() {
 		defer hookDone()
-		hookResult <- hook(hookContext)
+		defer func() {
+			if r := recover(); r != nil {
+				hookResult <- fmt.Errorf("service runner hook paniced: %v", r)
+			}
+		}()
+
+		hookResult <- hook(hookContext, svcCfg)
 	}()
 
 	select {
@@ -187,15 +207,37 @@ func doHook(ctx context.Context, hook func(context.Context) error, timeout time.
 	return
 }
 
-// Run implements Runner.
-func (r *runner) Run(ctx context.Context, worker func(context.Context) error) (err error) {
-	defer r.o11yCleanup()
+func WithWorker[T any](worker func(context.Context, *T) error) func(*runOpts[T]) {
+	return func(opts *runOpts[T]) {
+		opts.worker = worker
+	}
+}
+
+func WithTerminationTimeout[T any](tmo time.Duration) func(*runOpts[T]) {
+	return func(opts *runOpts[T]) {
+		opts.terminationTimeout = tmo
+	}
+}
+
+func (r *runner[T]) Run(ctx context.Context, opts ...func(*runOpts[T])) (err error) {
+
+	runOptions := runOpts[T]{
+		terminationTimeout: 10 * time.Second,
+	}
+
+	for _, option := range opts {
+		if option == nil {
+			return fmt.Errorf("nil run options not allowed")
+		}
+
+		option(&runOptions)
+	}
 
 	if r.configError != nil {
 		return r.configError
 	}
 
-	err = doHook(ctx, r.cfg.onStarting, r.cfg.onStartingTimeout)
+	err = doHook(ctx, r.cfg.onStarting, r.svcCfg, r.cfg.startingHookTimeout)
 	if err != nil {
 		return
 	}
@@ -223,18 +265,18 @@ func (r *runner) Run(ctx context.Context, worker func(context.Context) error) (e
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	defer close(sigChan)
 
-	err = doHook(ctx, r.cfg.onRunning, 30*time.Second)
+	err = doHook(ctx, r.cfg.onRunning, r.svcCfg, r.cfg.runningHookTimeout)
 	if err != nil {
 		return
 	}
 
-	if worker != nil && context.Cause(ctx) == nil {
+	if runOptions.worker != nil && context.Cause(ctx) == nil {
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
 
-			workerError := worker(ctx)
+			workerError := runOptions.worker(ctx, r.svcCfg)
 			if workerError != nil {
 				errChan <- workerError
 			}
@@ -249,7 +291,7 @@ func (r *runner) Run(ctx context.Context, worker func(context.Context) error) (e
 
 	err = errors.Join(
 		err,
-		doHook(context.WithoutCancel(ctx), r.cfg.onShutdown, 30*time.Second),
+		doHook(context.WithoutCancel(ctx), r.cfg.onShutdown, r.svcCfg, r.cfg.shutdownHookTimeout),
 	)
 
 	for serverIndex := range r.httpServers {
@@ -267,46 +309,50 @@ func (r *runner) Run(ctx context.Context, worker func(context.Context) error) (e
 
 	select {
 	case <-theWaitIsOver:
-	case <-time.After(10 * time.Second):
+	case <-time.After(runOptions.terminationTimeout):
 		err = fmt.Errorf("timed out waiting for shutdown")
 	}
 
 	return
 }
 
-func New(ctx context.Context, opts ...RunnerConfigFunc) (context.Context, Runner) {
+func New[T any](ctx context.Context, svcCfg T, opts ...func(cfg *runnerCfg[T])) (context.Context, Runner[T]) {
 
-	noop := func(context.Context) error { return nil }
+	noop := func(context.Context, *T) error { return nil }
 
-	cfg := &runnerCfg{
-		name:              "anonymous",
-		version:           buildinfo.SourceVersion(),
-		muxes:             make([]*muxCfg, 0, 2),
-		onInit:            noop,
-		onInitTimeout:     30 * time.Second,
-		onStarting:        noop,
-		onStartingTimeout: 30 * time.Second,
-		onRunning:         noop,
-		onShutdown:        noop,
+	cfg := &runnerCfg[T]{
+		muxes: make([]*muxCfg[T], 0, 2),
+
+		onInit:              noop,
+		initHookTimeout:     30 * time.Second,
+		onStarting:          noop,
+		startingHookTimeout: 30 * time.Second,
+		onRunning:           noop,
+		runningHookTimeout:  30 * time.Second,
+		onShutdown:          noop,
+		shutdownHookTimeout: 30 * time.Second,
 	}
 
 	for _, option := range opts {
 		option(cfg)
 	}
 
-	r := &runner{
+	r := &runner[T]{
 		cfg:         cfg,
+		svcCfg:      &svcCfg,
 		httpServers: make([]*httpSrvr, 0, len(cfg.muxes)),
 	}
 
-	ctx, _, r.o11yCleanup = o11y.Init(ctx, r.cfg.name, r.cfg.version)
-
-	r.configError = doHook(ctx, r.cfg.onInit, r.cfg.onInitTimeout)
+	r.configError = doHook(ctx, r.cfg.onInit, r.svcCfg, r.cfg.initHookTimeout)
 
 	for _, muxConf := range r.cfg.muxes {
 		mux := http.NewServeMux()
 
-		if muxConf.probesEnabled {
+		if muxConf.pprofEnabled {
+			mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+		}
+
+		if muxConf.k8sProbesEnabled {
 			nhh := handlers.NewHealthHandler(ctx, muxConf.probers)
 			mux.HandleFunc("GET /health", nhh)
 			mux.HandleFunc("GET /healthz", nhh)
@@ -325,7 +371,7 @@ func New(ctx context.Context, opts ...RunnerConfigFunc) (context.Context, Runner
 
 		_, port, _ := net.SplitHostPort(listener.Addr().String())
 
-		err = muxConf.initFunc(ctx, muxConf.name, port, mux)
+		err = muxConf.initFunc(ctx, muxConf.name, port, &svcCfg, mux)
 		if err != nil {
 			r.configError = fmt.Errorf("failed to init servemux: %s", err.Error())
 			listener.Close()
