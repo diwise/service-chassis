@@ -184,9 +184,10 @@ type runner[T any] struct {
 func doHook[T any](ctx context.Context, hook func(context.Context, *T) error, svcCfg *T, timeout time.Duration) (err error) {
 	hookResult := make(chan error)
 	hookContext, hookDone := context.WithTimeout(ctx, timeout)
+	defer hookDone()
 
 	go func() {
-		defer hookDone()
+		defer close(hookResult)
 		defer func() {
 			if r := recover(); r != nil {
 				hookResult <- fmt.Errorf("service runner hook paniced: %v", r)
