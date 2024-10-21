@@ -194,7 +194,7 @@ func doHook[T any](ctx context.Context, hook func(context.Context, *T) error, sv
 			}
 		}()
 
-		hookResult <- hook(hookContext, svcCfg)
+		hookResult <- hook(ctx, svcCfg)
 	}()
 
 	select {
