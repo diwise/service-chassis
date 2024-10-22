@@ -30,7 +30,6 @@ func NewReadinessHandler(ctx context.Context, probes map[string]ServiceProber) h
 	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
 
 		params, err := url.ParseQuery(r.URL.RawQuery)
 		if err != nil {
@@ -90,7 +89,6 @@ func NewReadinessHandler(ctx context.Context, probes map[string]ServiceProber) h
 func NewSingleReadinessHandler(ctx context.Context, probes map[string]ServiceProber) http.HandlerFunc {
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
 
 		probeName := r.PathValue("check")
 		probe, ok := probes[probeName]

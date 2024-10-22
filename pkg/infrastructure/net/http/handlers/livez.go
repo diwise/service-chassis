@@ -7,7 +7,6 @@ import (
 
 func NewLivenessHandler(ctx context.Context, isAlive func() error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
 
 		if err := isAlive(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
