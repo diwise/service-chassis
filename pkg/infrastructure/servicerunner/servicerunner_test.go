@@ -29,6 +29,8 @@ var OnMuxInit = servicerunner.OnMuxInit[cfg]
 var WithWorker = servicerunner.WithWorker[cfg]
 var WithStartingTimeout = servicerunner.WithStartingTimeout[cfg]
 
+var ignored int
+
 func TestStartingAndStopping(t *testing.T) {
 	is, ctx, stopRunner := setupTest(t)
 
@@ -121,8 +123,11 @@ func TestK8SReadinessProbes(t *testing.T) {
 	is, ctx, stopRunner := setupTest(t)
 	var serverPort string
 
-	tsProbe := &probe{}
-	rmqProbe := &probe{}
+	var tsProbeCount int
+	var rmqProbeCount int
+
+	tsProbe := probe(&tsProbeCount, nil)
+	rmqProbe := probe(&rmqProbeCount, nil)
 
 	probes := map[string]handlers.ServiceProber{
 		"timescale": tsProbe,
@@ -148,15 +153,15 @@ func TestK8SReadinessProbes(t *testing.T) {
 	}))
 
 	is.NoErr(err)
-	is.Equal(tsProbe.count, 1)
-	is.Equal(rmqProbe.count, 1)
+	is.Equal(tsProbeCount, 1)
+	is.Equal(rmqProbeCount, 1)
 }
 
 func TestK8SReadinessProbesWithVerboseOutput(t *testing.T) {
 	is, ctx, stopRunner := setupTest(t)
 	var serverPort string
 
-	probes := map[string]handlers.ServiceProber{"timescale": &probe{}, "rabbit": &probe{}}
+	probes := map[string]handlers.ServiceProber{"timescale": probe(&ignored, nil), "rabbit": probe(&ignored, nil)}
 
 	ctx, r := servicerunner.New(ctx,
 		cfg{},
@@ -184,7 +189,7 @@ func TestK8SReadinessProbesWithVerboseOutputAndExcludedCheck(t *testing.T) {
 	is, ctx, stopRunner := setupTest(t)
 	var serverPort string
 
-	probes := map[string]handlers.ServiceProber{"timescale": &probe{}, "rabbit": &probe{}}
+	probes := map[string]handlers.ServiceProber{"timescale": probe(&ignored, nil), "rabbit": probe(&ignored, nil)}
 
 	ctx, r := servicerunner.New(ctx,
 		cfg{},
@@ -212,7 +217,7 @@ func TestK8SReadinessProbesWithVerboseOutputAndSingleCheck(t *testing.T) {
 	is, ctx, stopRunner := setupTest(t)
 	var serverPort string
 
-	probes := map[string]handlers.ServiceProber{"timescale": &probe{}, "rabbit": &probe{}}
+	probes := map[string]handlers.ServiceProber{"timescale": probe(&ignored, nil), "rabbit": probe(&ignored, nil)}
 
 	ctx, r := servicerunner.New(ctx,
 		cfg{},
@@ -329,12 +334,9 @@ func httpRequest(method, port, path string, body io.Reader) (*http.Response, str
 	return resp, string(respBody)
 }
 
-type probe struct {
-	count  int
-	result error
-}
-
-func (p *probe) Probe(ctx context.Context) error {
-	p.count++
-	return p.result
+func probe(count *int, result error) func(context.Context) (string, error) {
+	return func(context.Context) (string, error) {
+		(*count)++
+		return "ok", result
+	}
 }

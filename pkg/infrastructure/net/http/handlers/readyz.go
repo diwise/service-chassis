@@ -9,9 +9,7 @@ import (
 	"strings"
 )
 
-type ServiceProber interface {
-	Probe(context.Context) error
-}
+type ServiceProber func(context.Context) (status string, err error)
 
 func NewReadinessHandler(ctx context.Context, probes map[string]ServiceProber) http.HandlerFunc {
 
@@ -54,7 +52,7 @@ func NewReadinessHandler(ctx context.Context, probes map[string]ServiceProber) h
 
 			var result error
 			if !isExcluded {
-				result = allprobes[idx].Probe(ctx)
+				_, result = allprobes[idx](ctx)
 			}
 
 			if verbose {
@@ -108,7 +106,7 @@ func NewSingleReadinessHandler(ctx context.Context, probes map[string]ServicePro
 
 		var sb strings.Builder
 
-		err = probe.Probe(ctx)
+		_, err = probe(ctx)
 
 		if verbose {
 			sb.WriteString("[+]")
