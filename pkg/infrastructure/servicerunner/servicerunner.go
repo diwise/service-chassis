@@ -296,7 +296,7 @@ func (r *runner[T]) Run(ctx context.Context, opts ...func(*runOpts[T])) (err err
 	)
 
 	for serverIndex := range r.httpServers {
-		e := r.httpServers[serverIndex].server.Shutdown(ctx)
+		e := r.httpServers[serverIndex].server.Shutdown(context.WithoutCancel(ctx))
 		if e != nil {
 			err = errors.Join(err, fmt.Errorf("failed to shutdown web server: %s", e.Error()))
 		}
