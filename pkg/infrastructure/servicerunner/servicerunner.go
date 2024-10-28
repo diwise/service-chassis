@@ -54,6 +54,14 @@ type runnerCfg[T any] struct {
 	shutdownHookTimeout time.Duration
 }
 
+func IfNot[T any](exclude bool, opt func(*runnerCfg[T])) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
+		if !exclude {
+			opt(cfg)
+		}
+	}
+}
+
 func OnInit[T any](initFunc func(context.Context, *T) error) func(*runnerCfg[T]) {
 	return func(cfg *runnerCfg[T]) {
 		cfg.onInit = initFunc
