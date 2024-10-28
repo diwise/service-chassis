@@ -31,7 +31,7 @@ import (
 // token approach is to keep the token in the backend and reduce the exposure
 // of sensitive data to the frontend.
 type PhantomTokenExchange interface {
-	Middleware() func(http.Handler) http.Handler
+	Middleware(http.Handler) http.Handler
 	InstallHandlers(r *http.ServeMux)
 	Connect(ctx context.Context, issuerURL string) error
 	Shutdown()
@@ -268,35 +268,32 @@ func (pt *phantomTokens) providerClientContext(ctx context.Context) context.Cont
 
 // Middleware handles the actual injection of the correct access token (if any)
 // based on the session id that may be found in the session cookie
-func (pt *phantomTokens) Middleware() func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		fn := func(w http.ResponseWriter, r *http.Request) {
-			cookie, err := pt.getCookie(w, r)
+func (pt *phantomTokens) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := pt.getCookie(w, r)
 
+		if err == nil {
+			tokenChan, err := pt.sessionToken(r.Context(), cookie.SessionID)
+			var token *oauth2.Token
 			if err == nil {
-				tokenChan, err := pt.sessionToken(r.Context(), cookie.SessionID)
-				var token *oauth2.Token
-				if err == nil {
-					token = <-tokenChan
-				}
-
-				if err == nil && token == nil {
-					err = errors.New("sessionToken returned nil token")
-				}
-
-				if err != nil {
-					pt.logger.Error("failed to lookup access token", "err", err.Error(), "session", cookie.SessionID)
-					pt.clearCookie(w)
-					pt.clearSession(cookie.SessionID)
-				} else if token != nil {
-					r.Header.Set("Authorization", token.TokenType+" "+token.AccessToken)
-				}
+				token = <-tokenChan
 			}
 
-			next.ServeHTTP(w, r)
+			if err == nil && token == nil {
+				err = errors.New("sessionToken returned nil token")
+			}
+
+			if err != nil {
+				pt.logger.Error("failed to lookup access token", "err", err.Error(), "session", cookie.SessionID)
+				pt.clearCookie(w)
+				pt.clearSession(cookie.SessionID)
+			} else if token != nil {
+				r.Header.Set("Authorization", token.TokenType+" "+token.AccessToken)
+			}
 		}
-		return http.HandlerFunc(fn)
-	}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (pt *phantomTokens) clearCookie(w http.ResponseWriter) {
