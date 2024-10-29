@@ -2,10 +2,17 @@ package logging
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"strings"
+	"time"
 
-	"log/slog"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/log/global"
+	"go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 type loggerContextKey struct {
@@ -15,25 +22,69 @@ type loggerContextKey struct {
 var loggerCtxKey = &loggerContextKey{"logger"}
 var logLevel = new(slog.LevelVar)
 
-func NewLogger(ctx context.Context, serviceName, serviceVersion string) (context.Context, *slog.Logger) {
+type CleanupFunc func()
+
+func Init(ctx context.Context, serviceName, serviceVersion string) (context.Context, CleanupFunc) {
+
+	cleanup := func() {}
+
+	exporterEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if exporterEndpoint != "" {
+
+		res, err := newResource(serviceName, serviceVersion)
+		if err != nil {
+			panic(err)
+		}
+
+		loggerProvider, err := newLoggerProvider(ctx, res)
+		if err != nil {
+			panic(err)
+		}
+
+		cleanup = func() { loggerProvider.Shutdown(ctx) }
+
+		// Register as global logger provider so that it can be accessed via global.LoggerProvider.
+		// Most log bridges use the global logger provider as the default.
+		// If the global logger provider is not set then a no-op implementation
+		// is used, which fails to generate data.
+		global.SetLoggerProvider(loggerProvider)
+	}
+
+	return ctx, cleanup
+}
+
+func NewLogger(ctx context.Context, serviceName, serviceVersion, logFormat string) (context.Context, *slog.Logger) {
 	logLevel.Set(slog.LevelDebug)
 
-	logger := slog.New(
-		slog.NewJSONHandler(
-			os.Stdout,
-			&slog.HandlerOptions{Level: logLevel},
-		),
-	).With(
-		slog.String("service", strings.ToLower(serviceName)),
-		slog.String("version", serviceVersion),
-	)
+	opts := &slog.HandlerOptions{Level: logLevel}
 
-	ctx = NewContextWithLogger(ctx, logger)
-	return ctx, logger
+	var handler slog.Handler
+	var logger *slog.Logger
+
+	exporterEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+	if exporterEndpoint != "" {
+		logger = otelslog.NewLogger(serviceName)
+	} else {
+		switch logFormat {
+		case "json":
+			handler = slog.NewJSONHandler(os.Stdout, opts)
+		case "text":
+			handler = slog.NewTextHandler(os.Stdout, opts)
+		default:
+			panic("log format " + logFormat + " not supported")
+		}
+
+		logger = slog.New(handler).With(
+			slog.String("service", strings.ToLower(serviceName)),
+			slog.String("version", serviceVersion),
+		)
+	}
+
+	return NewContextWithLogger(ctx, logger), logger
 }
 
 func NewContextWithLogger(ctx context.Context, logger *slog.Logger, args ...any) context.Context {
-	logger = logger.With(args...)	
+	logger = logger.With(args...)
 	return context.WithValue(ctx, loggerCtxKey, logger)
 }
 
@@ -53,4 +104,31 @@ func LogLevel() slog.Level {
 
 func SetLogLevel(level slog.Level) {
 	logLevel.Set(level)
+}
+
+func newResource(serviceName, serviceVersion string) (*resource.Resource, error) {
+	return resource.Merge(resource.Default(),
+		resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceName(serviceName),
+			semconv.ServiceVersion(serviceVersion),
+		))
+}
+
+func newLoggerProvider(ctx context.Context, res *resource.Resource) (*log.LoggerProvider, error) {
+	exporter, err := otlploghttp.New(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	processor := log.NewBatchProcessor(
+		exporter,
+		log.WithExportInterval(1*time.Second),
+	)
+
+	provider := log.NewLoggerProvider(
+		log.WithResource(res),
+		log.WithProcessor(processor),
+	)
+	return provider, nil
 }
