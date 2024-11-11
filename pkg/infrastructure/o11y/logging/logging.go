@@ -15,11 +15,9 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-type loggerContextKey struct {
-	name string
-}
+type loggerContextKey string
 
-var loggerCtxKey = &loggerContextKey{"logger"}
+var loggerCtxKey loggerContextKey = "logger"
 var logLevel = new(slog.LevelVar)
 
 type CleanupFunc func()
