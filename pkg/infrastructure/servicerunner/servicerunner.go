@@ -271,7 +271,7 @@ func (r *runner[T]) Run(ctx context.Context, opts ...func(*runOpts[T])) (err err
 	}
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer close(sigChan)
 
 	err = doHook(ctx, r.cfg.onRunning, r.svcCfg, r.cfg.runningHookTimeout)
