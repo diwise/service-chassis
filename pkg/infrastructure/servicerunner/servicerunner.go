@@ -54,6 +54,14 @@ type runnerCfg[T any] struct {
 	shutdownHookTimeout time.Duration
 }
 
+func IfNot[T any](exclude bool, opt func(*runnerCfg[T])) func(*runnerCfg[T]) {
+	return func(cfg *runnerCfg[T]) {
+		if !exclude {
+			opt(cfg)
+		}
+	}
+}
+
 func OnInit[T any](initFunc func(context.Context, *T) error) func(*runnerCfg[T]) {
 	return func(cfg *runnerCfg[T]) {
 		cfg.onInit = initFunc
@@ -263,7 +271,7 @@ func (r *runner[T]) Run(ctx context.Context, opts ...func(*runOpts[T])) (err err
 	}
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	defer close(sigChan)
 
 	err = doHook(ctx, r.cfg.onRunning, r.svcCfg, r.cfg.runningHookTimeout)
@@ -297,7 +305,7 @@ func (r *runner[T]) Run(ctx context.Context, opts ...func(*runOpts[T])) (err err
 
 	for serverIndex := range r.httpServers {
 		e := r.httpServers[serverIndex].server.Shutdown(ctx)
-		if e != nil {
+		if e != nil && !errors.Is(e, context.Canceled) {
 			err = errors.Join(err, fmt.Errorf("failed to shutdown web server: %s", e.Error()))
 		}
 	}

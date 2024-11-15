@@ -2,7 +2,6 @@ package o11y
 
 import (
 	"context"
-
 	"log/slog"
 
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
@@ -13,8 +12,10 @@ import (
 
 type CleanupFunc func()
 
-func Init(ctx context.Context, serviceName, serviceVersion string) (context.Context, *slog.Logger, CleanupFunc) {
-	ctx, logger := logging.NewLogger(ctx, serviceName, serviceVersion)
+func Init(ctx context.Context, serviceName, serviceVersion, logfmt string) (context.Context, *slog.Logger, CleanupFunc) {
+	ctx, cleanupLogging := logging.Init(ctx, serviceName, serviceVersion)
+
+	ctx, logger := logging.NewLogger(ctx, serviceName, serviceVersion, logfmt)
 	logger.Info("starting up ...")
 
 	cleanupMetrics, err := metrics.Init(ctx, logger, serviceName, serviceVersion)
@@ -32,6 +33,7 @@ func Init(ctx context.Context, serviceName, serviceVersion string) (context.Cont
 	}
 
 	cleanup := func() {
+		cleanupLogging()
 		cleanupMetrics()
 		cleanupTracing()
 	}
