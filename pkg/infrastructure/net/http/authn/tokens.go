@@ -39,8 +39,9 @@ type PhantomTokenExchange interface {
 
 // cookieContents holds the information that is stored in a cookie in the browser
 type cookieContents struct {
-	SessionID string `json:"session"`
-	SourceIP  string `json:"ip"`
+	SessionID     string    `json:"session"`
+	RefreshableTo time.Time `json:"refreshableTo"`
+	SourceIP      string    `json:"ip"`
 }
 
 // phantomTokens is our internal implementation struct
@@ -266,6 +267,28 @@ func (pt *phantomTokens) providerClientContext(ctx context.Context) context.Cont
 	return ctx
 }
 
+type sessionKey string
+type refreshKey string
+
+const sessionID sessionKey = "session-id"
+const sessionRefreshableTo refreshKey = "refresh-expires"
+
+func SessionID(ctx context.Context) (theID string, ok bool) {
+	val := ctx.Value(sessionID)
+	if val != nil {
+		theID, ok = val.(string)
+	}
+	return
+}
+
+func SessionRefreshableTo(ctx context.Context) (to time.Time) {
+	val := ctx.Value(sessionRefreshableTo)
+	if val != nil {
+		to, _ = val.(time.Time)
+	}
+	return
+}
+
 // Middleware handles the actual injection of the correct access token (if any)
 // based on the session id that may be found in the session cookie
 func (pt *phantomTokens) Middleware() func(http.Handler) http.Handler {
@@ -289,6 +312,10 @@ func (pt *phantomTokens) Middleware() func(http.Handler) http.Handler {
 					pt.clearCookie(w)
 					pt.clearSession(cookie.SessionID)
 				} else if token != nil {
+					ctx := context.WithValue(r.Context(), sessionID, cookie.SessionID)
+					ctx = context.WithValue(ctx, sessionRefreshableTo, cookie.RefreshableTo)
+					r = r.WithContext(ctx)
+
 					r.Header.Set("Authorization", token.TokenType+" "+token.AccessToken)
 				}
 			}
@@ -781,7 +808,7 @@ func (pt *phantomTokens) LoginExchangeHandler() http.HandlerFunc {
 		extra := &struct {
 			IDToken          string `json:"id_token"`
 			ExpiresIn        int32  `json:"expires_in"`
-			RefreshExpiresIn int32  `json:"refresh_expires_in"`
+			RefreshExpiresIn int32  `json:"refresh_expires_in"` // TODO: Also handle Microsoft's refresh_token_expires_in ?
 		}{}
 		err = json.Unmarshal(body, extra)
 		if err != nil || extra.IDToken == "" {
@@ -789,8 +816,15 @@ func (pt *phantomTokens) LoginExchangeHandler() http.HandlerFunc {
 			return
 		}
 
+		refreshDuration := time.Duration(extra.RefreshExpiresIn) * time.Second
+
 		oauth2Token.Expiry = time.Now().Add(time.Duration(extra.ExpiresIn) * time.Second)
-		pt.logger.Info("token expiry", "when", oauth2Token.Expiry.Format(time.RFC3339), "session", sessionID)
+		pt.logger.Info(
+			"token expiry",
+			"when", oauth2Token.Expiry.Format(time.RFC3339),
+			"refreshable", refreshDuration.String(),
+			"session", sessionID,
+		)
 
 		verifier := pt.provider.Verifier(&oidc.Config{ClientID: pt.clientID})
 		_, err = verifier.Verify(ctx, extra.IDToken)
@@ -804,8 +838,9 @@ func (pt *phantomTokens) LoginExchangeHandler() http.HandlerFunc {
 
 		var newCookie *http.Cookie
 		newCookie, err = pt.newCookie(cookieContents{
-			SessionID: sessionID,
-			SourceIP:  r.Header.Get("X-Real-IP"),
+			SessionID:     sessionID,
+			RefreshableTo: time.Now().Add(refreshDuration),
+			SourceIP:      r.Header.Get("X-Real-IP"),
 		})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
