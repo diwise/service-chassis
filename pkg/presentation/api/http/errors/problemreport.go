@@ -5,8 +5,8 @@ import (
 	"net/http"
 )
 
-// ProblemDetails stores details about a certain problem according to RFC7807
-// See https://tools.ietf.org/html/rfc7807
+// ProblemDetails stores details about a certain problem according to RFC9457
+// See https://tools.ietf.org/html/rfc9457
 type ProblemDetails interface {
 	Code() int
 	Type() string
@@ -20,7 +20,7 @@ type ProblemDetails interface {
 }
 
 const (
-	//ProblemReportContentType as required by https://tools.ietf.org/html/rfc7807
+	//ProblemReportContentType as required by https://tools.ietf.org/html/rfc9457
 	ProblemReportContentType string = "application/problem+json"
 )
 
