@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"github.com/diwise/service-chassis/pkg/infrastructure/net/http/handlers"
 )
 
@@ -36,7 +38,8 @@ type muxCfg[T any] struct {
 	probers          map[string]handlers.ServiceProber
 	isAlive          func() error
 
-	pprofEnabled bool
+	pprofEnabled   bool
+	tracingEnabled bool
 
 	initFunc func(ctx context.Context, identifier, port string, svcCfg *T, handler *http.ServeMux) error
 }
@@ -146,6 +149,12 @@ func WithPPROF[T any]() func(*muxCfg[T]) {
 	}
 }
 
+func WithTracing[T any](enabled bool) func(*muxCfg[T]) {
+	return func(cfg *muxCfg[T]) {
+		cfg.tracingEnabled = enabled
+	}
+}
+
 func OnMuxInit[T any](initFunc func(ctx context.Context, identifier, port string, svcCfg *T, handler *http.ServeMux) error) func(*muxCfg[T]) {
 	return func(cfg *muxCfg[T]) {
 		cfg.initFunc = initFunc
@@ -159,6 +168,7 @@ func WithHTTPServeMux[T any](identifer string, opts ...func(*muxCfg[T])) func(*r
 			listen:           "127.0.0.1",
 			port:             "0",
 			pprofEnabled:     false,
+			tracingEnabled:   false,
 			k8sProbesEnabled: false,
 			isAlive:          func() error { return nil },
 			initFunc: func(ctx context.Context, identifier, port string, svcCfg *T, handler *http.ServeMux) error {
@@ -387,11 +397,19 @@ func New[T any](ctx context.Context, svcCfg T, opts ...func(cfg *runnerCfg[T])) 
 			return ctx, r
 		}
 
-		r.httpServers = append(r.httpServers, &httpSrvr{
+		s := &httpSrvr{
 			listener: listener,
 			mux:      mux,
 			server:   &http.Server{Addr: addr, Handler: mux},
-		})
+		}
+
+		if muxConf.tracingEnabled {
+			s.server.Handler = otelhttp.NewHandler(mux, muxConf.name,
+				otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
+			)
+		}
+
+		r.httpServers = append(r.httpServers, s)
 	}
 
 	return ctx, r
