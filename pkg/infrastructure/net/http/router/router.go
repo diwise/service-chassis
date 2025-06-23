@@ -1,39 +1,66 @@
 package router
 
 import (
+	"iter"
 	"net/http"
 	"slices"
+	"strings"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-type Router interface {
-	Route(route string, r func(Router))
+type ServeMux interface {
+	// Group creates a new mux, calls fn with this mux and wraps it after return with the current stack of middleware
+	Group(fn func(ServeMux))
 
+	// Route adds the route argument to the current pattern prefix and calls fn with a copy of
+	// the current ServeMux. Any middleware that is added within fn will not affect any other routes.
+	Route(route string, fn func(ServeMux))
+
+	// Add one or more middleware handlers to the stack of the current router. The middlewares will be invoked in the order they are passed in.
 	Use(middlewares ...func(http.Handler) http.Handler)
 
+	// Register a CONNECT handler h with the given pattern added to the current prefix
 	Connect(pattern string, h http.HandlerFunc)
+	// Register a DELETE handler h with the given pattern added to the current prefix
 	Delete(pattern string, h http.HandlerFunc)
+	// Register a GET handler h with the given pattern added to the current prefix
 	Get(pattern string, h http.HandlerFunc)
+	// Register a HEAD handler h with the given pattern added to the current prefix
 	Head(pattern string, h http.HandlerFunc)
+	// Register a OPTIONS handler h with the given pattern added to the current prefix
 	Options(pattern string, h http.HandlerFunc)
+	// Register a PATCH handler h with the given pattern added to the current prefix
 	Patch(pattern string, h http.HandlerFunc)
+	// Register a POST handler h with the given pattern added to the current prefix
 	Post(pattern string, h http.HandlerFunc)
+	// Register a PUT handler h with the given pattern added to the current prefix
 	Put(pattern string, h http.HandlerFunc)
+	// Register a TRACE handler h with the given pattern added to the current prefix
 	Trace(pattern string, h http.HandlerFunc)
+
+	// AllowedMethods returns an iterator over the methods that have been used when registering handlers with this ServeMux.
+	AllowedMethods() iter.Seq[string]
 }
 
 type opt struct {
+	prefix    string
 	tagRoutes bool
 }
 
-func WithTaggedRoutes() func(*opt) {
+func WithPrefix(prefix string) func(*opt) {
 	return func(o *opt) {
-		o.tagRoutes = true
+		o.prefix = prefix
 	}
 }
 
-func New(mux *http.ServeMux, options ...func(*opt)) Router {
+func WithTaggedRoutes(tagRoutes bool) func(*opt) {
+	return func(o *opt) {
+		o.tagRoutes = tagRoutes
+	}
+}
+
+func New(mux *http.ServeMux, options ...func(*opt)) ServeMux {
 	o := &opt{}
 
 	for _, applyOption := range options {
@@ -41,9 +68,11 @@ func New(mux *http.ServeMux, options ...func(*opt)) Router {
 	}
 
 	return &impl{
-		mux:         mux,
-		middlewares: make([]func(http.Handler) http.Handler, 0, 16),
-		tagRoutes:   o.tagRoutes,
+		prefix:         o.prefix,
+		mux:            mux,
+		middlewares:    make([]func(http.Handler) http.Handler, 0, 16),
+		tagRoutes:      o.tagRoutes,
+		allowedMethods: map[string]struct{}{},
 	}
 }
 
@@ -52,13 +81,23 @@ type impl struct {
 	mux         *http.ServeMux
 	middlewares []func(http.Handler) http.Handler
 	tagRoutes   bool
+
+	allowedMethods map[string]struct{}
 }
 
 func (i *impl) register(method, pattern string, h http.Handler) {
+	if len(pattern) > 0 && !strings.HasPrefix(pattern, "/") && !strings.HasSuffix(i.prefix, "/") {
+		pattern = "/" + pattern
+	}
+
+	pattern = i.prefix + pattern
+
 	if i.tagRoutes {
 		h = otelhttp.WithRouteTag(pattern, h)
 	}
-	i.mux.Handle(method+" "+i.prefix+pattern, i.wrap(h))
+
+	i.allowedMethods[method] = struct{}{}
+	i.mux.Handle(method+" "+pattern, i.wrap(h))
 }
 
 func (i *impl) wrap(h http.Handler) http.Handler {
@@ -69,59 +108,71 @@ func (i *impl) wrap(h http.Handler) http.Handler {
 	return handler
 }
 
-// Connect implements Router.
+func (i *impl) AllowedMethods() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for method := range i.allowedMethods {
+			if !yield(method) {
+				return
+			}
+		}
+	}
+}
+
 func (i *impl) Connect(pattern string, h http.HandlerFunc) {
 	i.register(http.MethodConnect, pattern, h)
 }
 
-// Delete implements Router.
 func (i *impl) Delete(pattern string, h http.HandlerFunc) {
 	i.register(http.MethodDelete, pattern, h)
 }
 
-// Get implements Router.
 func (i *impl) Get(pattern string, h http.HandlerFunc) {
 	i.register(http.MethodGet, pattern, h)
 }
 
-// Head implements Router.
+func (i *impl) Group(fn func(ServeMux)) {
+	groupMux := http.NewServeMux()
+	groupRouter := New(groupMux, WithTaggedRoutes(i.tagRoutes), WithPrefix(i.prefix))
+
+	fn(groupRouter)
+
+	handler := i.wrap(groupMux)
+
+	for m := range groupRouter.AllowedMethods() {
+		i.register(m, "/", handler)
+	}
+}
+
 func (i *impl) Head(pattern string, h http.HandlerFunc) {
 	i.register(http.MethodHead, pattern, h)
 }
 
-// Options implements Router.
 func (i *impl) Options(pattern string, h http.HandlerFunc) {
 	i.register(http.MethodOptions, pattern, h)
 }
 
-// Patch implements Router.
 func (i *impl) Patch(pattern string, h http.HandlerFunc) {
 	i.register(http.MethodPatch, pattern, h)
 }
 
-// Post implements Router.
 func (i *impl) Post(pattern string, h http.HandlerFunc) {
 	i.register(http.MethodPost, pattern, h)
 }
 
-// Put implements Router.
 func (i *impl) Put(pattern string, h http.HandlerFunc) {
 	i.register(http.MethodPut, pattern, h)
 }
 
-// Route implements Router.
-func (i *impl) Route(route string, r func(Router)) {
+func (i *impl) Route(route string, r func(ServeMux)) {
 	copy := *i
 	copy.prefix = copy.prefix + route
 	r(&copy)
 }
 
-// Trace implements Router.
 func (i *impl) Trace(pattern string, h http.HandlerFunc) {
 	i.register(http.MethodTrace, pattern, h)
 }
 
-// Use implements Router.
 func (i *impl) Use(middlewares ...func(http.Handler) http.Handler) {
 	i.middlewares = append(i.middlewares, middlewares...)
 }
