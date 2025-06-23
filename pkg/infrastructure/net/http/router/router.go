@@ -85,12 +85,23 @@ type impl struct {
 	allowedMethods map[string]struct{}
 }
 
-func (i *impl) register(method, pattern string, h http.Handler) {
-	if len(pattern) > 0 && !strings.HasPrefix(pattern, "/") && !strings.HasSuffix(i.prefix, "/") {
-		pattern = "/" + pattern
+func concatPrefix(prefix, pattern string) string {
+	if len(pattern) > 0 {
+		if !strings.HasPrefix(pattern, "/") {
+			if !strings.HasSuffix(prefix, "/") {
+				pattern = "/" + pattern
+			}
+		} else if strings.HasSuffix(prefix, "/") {
+			pattern = pattern[1:]
+		}
 	}
 
-	pattern = i.prefix + pattern
+	return prefix + pattern
+}
+
+func (i *impl) register(method, pattern string, h http.Handler) {
+
+	pattern = concatPrefix(i.prefix, pattern)
 
 	if i.tagRoutes {
 		h = otelhttp.WithRouteTag(pattern, h)
@@ -166,8 +177,14 @@ func (i *impl) Put(pattern string, h http.HandlerFunc) {
 
 func (i *impl) Route(route string, r func(ServeMux)) {
 	copy := *i
-	copy.prefix = copy.prefix + route
+	copy.allowedMethods = map[string]struct{}{}
+	copy.prefix = concatPrefix(copy.prefix, route)
+
 	r(&copy)
+
+	for m := range copy.AllowedMethods() {
+		i.allowedMethods[m] = struct{}{}
+	}
 }
 
 func (i *impl) Trace(pattern string, h http.HandlerFunc) {

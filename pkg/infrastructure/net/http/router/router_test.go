@@ -128,3 +128,24 @@ func TestMultipleMethodsOnSameRoute(t *testing.T) {
 	is.Equal(getCalls, 1)
 	is.Equal(headCalls, 1)
 }
+
+func TestAddsSlashesAutomatically(t *testing.T) {
+	is := is.New(t)
+
+	mux := http.NewServeMux()
+	r := router.New(mux)
+
+	r.Route("a", func(r router.ServeMux) {
+		r.Route("b", func(r router.ServeMux) {
+			r.Get("c", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+		})
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, _ := http.Get(ts.URL + "/a/b/c")
+	is.Equal(resp.StatusCode, http.StatusOK)
+}
