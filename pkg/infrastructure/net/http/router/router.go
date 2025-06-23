@@ -118,6 +118,7 @@ func (i *impl) AllowedMethods() iter.Seq[string] {
 	}
 }
 
+// Connect implements [ServeMux]
 func (i *impl) Connect(pattern string, h http.HandlerFunc) {
 	i.register(http.MethodConnect, pattern, h)
 }
