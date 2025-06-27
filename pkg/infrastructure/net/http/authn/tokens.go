@@ -365,7 +365,13 @@ func (pt *phantomTokens) getCookie(w http.ResponseWriter, r *http.Request) (*coo
 	// Use aesGCM.Open() to decrypt and authenticate the data.
 	plaintext, err := aesGCM.Open(nil, []byte(nonce), []byte(ciphertext), nil)
 	if err != nil {
-		pt.logger.Error("failed to decrypt and authenticate cookie data", "err", err.Error())
+		pt.logger.Error(
+			"failed to decrypt and authenticate cookie data",
+			"value", cookie.Value,
+			"keysize", len(pt.secretKey),
+			"noncesize", nonceSize,
+			"err", err.Error(),
+		)
 		pt.clearCookie(w)
 		// Redirect the browser to the login endpoint to attempt a refresh
 		// of the authorization token and cookie
