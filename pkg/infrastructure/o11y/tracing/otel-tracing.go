@@ -6,7 +6,9 @@ import (
 
 	"log/slog"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
@@ -64,6 +66,41 @@ func RecordAnyErrorAndEndSpan(err error, span trace.Span) {
 		span.RecordError(err)
 	}
 	span.End()
+}
+
+// AddErrorLabelsOnError extracts a [otelhttp.Labeler] from the provided [context.Context]
+// and returns a function that the caller can defer on to report any errors that are returned
+// by the supplied errorReporter.
+func AddErrorLabelsOnError(ctx context.Context, errorReporter func() error) (reportErrors func()) {
+	labeler, existed := otelhttp.LabelerFromContext(ctx)
+	if !existed {
+		return func() {}
+	}
+
+	return func() {
+		if err := errorReporter(); err != nil {
+			labeler.Add(attribute.Bool("error", true))
+			labeler.Add(attribute.String("err", err.Error()))
+		}
+	}
+}
+
+// LabelerFromContext extracts a [otelhttp.Labeler] from the provided [context.Context]
+// and returns the labeler, wether it already existed or not and a reportErrors function
+// that the caller can defer on to add error labels if the supplied errorReporter
+// returns an error on exit.
+func LabelerFromContext(ctx context.Context, errorReporter func() error) (labeler *otelhttp.Labeler, existed bool, reportErrors func()) {
+	labeler, existed = otelhttp.LabelerFromContext(ctx)
+	if !existed || errorReporter == nil {
+		return labeler, existed, func() {}
+	}
+
+	return labeler, existed, func() {
+		if err := errorReporter(); err != nil {
+			labeler.Add(attribute.Bool("error", true))
+			labeler.Add(attribute.String("err", err.Error()))
+		}
+	}
 }
 
 // newResource returns a resource describing this application.
