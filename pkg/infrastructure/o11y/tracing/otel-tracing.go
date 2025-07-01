@@ -75,20 +75,27 @@ func ExtractTraceID(span trace.Span) (string, bool) {
 
 func RecordAnyErrorAndEndSpan(err error, span trace.Span) {
 	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		span.RecordError(err)
 	}
 	span.End()
 }
 
-func SetSpanStatusOnExit(ctx context.Context, getError func() error) func() {
+func SetSpanStatus(ctx context.Context, err error) {
 	span := trace.SpanFromContext(ctx)
-	return func() {
-		if err := getError(); err != nil {
+	if span.IsRecording() {
+		if err != nil {
 			span.SetStatus(codes.Error, err.Error())
 			span.RecordError(err)
 		} else {
 			span.SetStatus(codes.Ok, "")
 		}
+	}
+}
+
+func SetSpanStatusOnExit(ctx context.Context, getError func() error) func() {
+	return func() {
+		SetSpanStatus(ctx, getError())
 	}
 }
 
