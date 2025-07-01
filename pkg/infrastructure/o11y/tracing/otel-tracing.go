@@ -99,6 +99,24 @@ func SetSpanStatusOnExit(ctx context.Context, getError func() error) func() {
 	}
 }
 
+func Start(ctx context.Context, tracerName, spanName string, getError func() error, opts ...trace.SpanStartOption) (context.Context, func()) {
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return ctx, func() {}
+	}
+
+	ctx, subspan := span.TracerProvider().Tracer(tracerName).Start(ctx, spanName, opts...)
+
+	return ctx, func() {
+		var err error
+		if getError != nil {
+			err = getError()
+		}
+		SetSpanStatus(ctx, err)
+		subspan.End()
+	}
+}
+
 // newResource returns a resource describing this application.
 func newResource(serviceName, version string) *resource.Resource {
 	return resource.NewWithAttributes(
