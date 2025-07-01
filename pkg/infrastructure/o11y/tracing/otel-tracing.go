@@ -6,9 +6,8 @@ import (
 
 	"log/slog"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
@@ -51,6 +50,19 @@ func Init(ctx context.Context, logger *slog.Logger, serviceName, serviceVersion 
 	return cleanupFunc, nil
 }
 
+func AddEvent(ctx context.Context, name string, options ...trace.EventOption) {
+	span := trace.SpanFromContext(ctx)
+	span.AddEvent(name, options...)
+}
+
+func CurrentTraceID(ctx context.Context) string {
+	t := trace.SpanFromContext(ctx).SpanContext().TraceID()
+	if !t.IsValid() {
+		return ""
+	}
+	return t.String()
+}
+
 func ExtractTraceID(span trace.Span) (string, bool) {
 	traceID := span.SpanContext().TraceID()
 
@@ -68,37 +80,14 @@ func RecordAnyErrorAndEndSpan(err error, span trace.Span) {
 	span.End()
 }
 
-// AddErrorLabelsOnError extracts a [otelhttp.Labeler] from the provided [context.Context]
-// and returns a function that the caller can defer on to report any errors that are returned
-// by the supplied errorReporter.
-func AddErrorLabelsOnError(ctx context.Context, errorReporter func() error) (reportErrors func()) {
-	labeler, existed := otelhttp.LabelerFromContext(ctx)
-	if !existed {
-		return func() {}
-	}
-
+func SetSpanStatusOnExit(ctx context.Context, getError func() error) func() {
+	span := trace.SpanFromContext(ctx)
 	return func() {
-		if err := errorReporter(); err != nil {
-			labeler.Add(attribute.Bool("error", true))
-			labeler.Add(attribute.String("err", err.Error()))
-		}
-	}
-}
-
-// LabelerFromContext extracts a [otelhttp.Labeler] from the provided [context.Context]
-// and returns the labeler, wether it already existed or not and a reportErrors function
-// that the caller can defer on to add error labels if the supplied errorReporter
-// returns an error on exit.
-func LabelerFromContext(ctx context.Context, errorReporter func() error) (labeler *otelhttp.Labeler, existed bool, reportErrors func()) {
-	labeler, existed = otelhttp.LabelerFromContext(ctx)
-	if !existed || errorReporter == nil {
-		return labeler, existed, func() {}
-	}
-
-	return labeler, existed, func() {
-		if err := errorReporter(); err != nil {
-			labeler.Add(attribute.Bool("error", true))
-			labeler.Add(attribute.String("err", err.Error()))
+		if err := getError(); err != nil {
+			span.SetStatus(codes.Error, err.Error())
+			span.RecordError(err)
+		} else {
+			span.SetStatus(codes.Ok, "")
 		}
 	}
 }
