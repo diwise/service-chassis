@@ -295,6 +295,15 @@ func (pt *phantomTokens) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := pt.getCookie(w, r)
 
+		if err != nil {
+			if errors.Is(err, http.ErrAbortHandler) {
+				return
+			} else if errors.Is(err, errInvalidCookie) {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+		}
+
 		if err == nil {
 			tokenChan, err := pt.sessionToken(r.Context(), cookie.SessionID)
 			var token *oauth2.Token
@@ -339,6 +348,8 @@ func (pt *phantomTokens) clearCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &cookie)
 }
 
+var errInvalidCookie = errors.New("invalid cookie")
+
 func (pt *phantomTokens) getCookie(w http.ResponseWriter, r *http.Request) (*cookieContents, error) {
 	cookie, err := r.Cookie(pt.cookieName)
 	if err != nil {
@@ -354,17 +365,13 @@ func (pt *phantomTokens) getCookie(w http.ResponseWriter, r *http.Request) (*coo
 	// Create a new AES cipher block from the secret key.
 	block, err := aes.NewCipher(pt.secretKey)
 	if err != nil {
-		pt.logger.Error("cipher failure", "err", err.Error())
-		w.WriteHeader(http.StatusInternalServerError)
-		return nil, fmt.Errorf("cipher failure: %w", err)
+		panic("new cipher failed: " + err.Error())
 	}
 
 	// Wrap the cipher block in Galois Counter Mode.
 	aesGCM, err := cipher.NewGCM(block)
 	if err != nil {
-		pt.logger.Error("cipher failure", "err", err.Error())
-		w.WriteHeader(http.StatusInternalServerError)
-		return nil, fmt.Errorf("cipher failure: %w", err)
+		panic("new gcm failed: " + err.Error())
 	}
 
 	// Get the nonce size.
@@ -373,10 +380,9 @@ func (pt *phantomTokens) getCookie(w http.ResponseWriter, r *http.Request) (*coo
 	// To avoid a potential 'index out of range' panic in the next step, we
 	// check that the length of the encrypted value is at least the nonce size.
 	if len(encryptedValue) < nonceSize {
-		err = errors.New("encrypted value too short")
+		err = fmt.Errorf("encrypted value too short: %w", errInvalidCookie)
 		pt.logger.Error(err.Error(), "length", len(encryptedValue))
 		pt.clearCookie(w)
-		w.WriteHeader(http.StatusBadRequest)
 		return nil, err
 	}
 
@@ -387,13 +393,20 @@ func (pt *phantomTokens) getCookie(w http.ResponseWriter, r *http.Request) (*coo
 	// Use aesGCM.Open() to decrypt and authenticate the data.
 	plaintext, err := aesGCM.Open(nil, []byte(nonce), []byte(ciphertext), nil)
 	if err != nil {
-		pt.logger.Error("failed to decrypt and authenticate cookie data", "err", err.Error())
+		pt.logger.Error(
+			"failed to decrypt and authenticate cookie data",
+			"name", pt.cookieName,
+			"value", cookie.Value,
+			"keysize", len(pt.secretKey),
+			"noncesize", nonceSize,
+			"err", err.Error(),
+		)
 		pt.clearCookie(w)
 		// Redirect the browser to the login endpoint to attempt a refresh
 		// of the authorization token and cookie
 		path := url.QueryEscape(r.URL.Path)
 		http.Redirect(w, r, pt.loginEndpoint+"?path="+path, http.StatusFound)
-		return nil, err
+		return nil, http.ErrAbortHandler
 	}
 
 	value := &cookieContents{}
@@ -401,15 +414,13 @@ func (pt *phantomTokens) getCookie(w http.ResponseWriter, r *http.Request) (*coo
 	if err != nil {
 		pt.logger.Error("cookie contents error", "err", err.Error())
 		pt.clearCookie(w)
-		w.WriteHeader(http.StatusBadRequest)
-		return nil, fmt.Errorf("cookie contents error: %w", err)
+		return nil, fmt.Errorf("cookie contents error: %w", errInvalidCookie)
 	}
 
 	if value.SourceIP != "" && value.SourceIP != r.Header.Get("X-Real-IP") {
 		pt.logger.Error("session ip address changed", "old", value.SourceIP, "new", r.Header.Get("X-Real-IP"), "session", value.SessionID)
 		pt.clearCookie(w)
-		w.WriteHeader(http.StatusBadRequest)
-		return nil, errors.New("session ip address changed")
+		return nil, fmt.Errorf("session ip address changed: %w", errInvalidCookie)
 	}
 
 	return value, nil

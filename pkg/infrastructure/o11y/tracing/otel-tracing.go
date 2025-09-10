@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
@@ -49,6 +50,19 @@ func Init(ctx context.Context, logger *slog.Logger, serviceName, serviceVersion 
 	return cleanupFunc, nil
 }
 
+func AddEvent(ctx context.Context, name string, options ...trace.EventOption) {
+	span := trace.SpanFromContext(ctx)
+	span.AddEvent(name, options...)
+}
+
+func CurrentTraceID(ctx context.Context) string {
+	t := trace.SpanFromContext(ctx).SpanContext().TraceID()
+	if !t.IsValid() {
+		return ""
+	}
+	return t.String()
+}
+
 func ExtractTraceID(span trace.Span) (string, bool) {
 	traceID := span.SpanContext().TraceID()
 
@@ -61,9 +75,46 @@ func ExtractTraceID(span trace.Span) (string, bool) {
 
 func RecordAnyErrorAndEndSpan(err error, span trace.Span) {
 	if err != nil {
+		span.SetStatus(codes.Error, err.Error())
 		span.RecordError(err)
 	}
 	span.End()
+}
+
+func SetSpanStatus(ctx context.Context, err error) {
+	span := trace.SpanFromContext(ctx)
+	if span.IsRecording() {
+		if err != nil {
+			span.SetStatus(codes.Error, err.Error())
+			span.RecordError(err)
+		} else {
+			span.SetStatus(codes.Ok, "")
+		}
+	}
+}
+
+func SetSpanStatusOnExit(ctx context.Context, getError func() error) func() {
+	return func() {
+		SetSpanStatus(ctx, getError())
+	}
+}
+
+func Start(ctx context.Context, tracerName, spanName string, getError func() error, opts ...trace.SpanStartOption) (context.Context, func()) {
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return ctx, func() {}
+	}
+
+	ctx, subspan := span.TracerProvider().Tracer(tracerName).Start(ctx, spanName, opts...)
+
+	return ctx, func() {
+		var err error
+		if getError != nil {
+			err = getError()
+		}
+		SetSpanStatus(ctx, err)
+		subspan.End()
+	}
 }
 
 // newResource returns a resource describing this application.
