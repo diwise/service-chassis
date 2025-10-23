@@ -102,7 +102,7 @@ func SetSpanStatusOnExit(ctx context.Context, getError func() error) func() {
 func Start(ctx context.Context, tracerName, spanName string, getError func() error, opts ...trace.SpanStartOption) (context.Context, func()) {
 	var tracer trace.Tracer
 
-	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() && span.IsRecording() {
 		tracer = span.TracerProvider().Tracer(tracerName)
 	} else {
 		tracer = otel.GetTracerProvider().Tracer(tracerName)
