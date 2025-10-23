@@ -100,20 +100,25 @@ func SetSpanStatusOnExit(ctx context.Context, getError func() error) func() {
 }
 
 func Start(ctx context.Context, tracerName, spanName string, getError func() error, opts ...trace.SpanStartOption) (context.Context, func()) {
-	span := trace.SpanFromContext(ctx)
-	if !span.IsRecording() {
-		return ctx, func() {}
+	var tracer trace.Tracer
+
+	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() {
+		tracer = span.TracerProvider().Tracer(tracerName)
+	} else {
+		tracer = otel.GetTracerProvider().Tracer(tracerName)
 	}
 
-	ctx, subspan := span.TracerProvider().Tracer(tracerName).Start(ctx, spanName, opts...)
+	ctx, subspan := tracer.Start(ctx, spanName, opts...)
 
 	return ctx, func() {
+		defer subspan.End()
+
 		var err error
 		if getError != nil {
 			err = getError()
 		}
+
 		SetSpanStatus(ctx, err)
-		subspan.End()
 	}
 }
 
