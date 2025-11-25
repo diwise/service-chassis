@@ -68,6 +68,9 @@ func TestRegisterGroupedRoutes(t *testing.T) {
 	r.Route("/api", func(r router.ServeMux) {
 		r.Route("/v1", func(r router.ServeMux) {
 			r.Group(func(r router.ServeMux) {
+				r.Get("", func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusNoContent)
+				})
 				r.Route("/test", func(r router.ServeMux) {
 					r.Get("/oranges", func(w http.ResponseWriter, r *http.Request) {
 						w.WriteHeader(http.StatusOK)
@@ -79,7 +82,7 @@ func TestRegisterGroupedRoutes(t *testing.T) {
 			r.Group(func(r router.ServeMux) {
 				r.Route("/test", func(r router.ServeMux) {
 					r.Get("/oranges", func(w http.ResponseWriter, r *http.Request) {
-						w.WriteHeader(http.StatusOK)
+						w.WriteHeader(http.StatusPaymentRequired)
 					})
 				})
 			})
@@ -89,9 +92,17 @@ func TestRegisterGroupedRoutes(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v2/test/oranges")
+	resp, err := http.Get(ts.URL + "/api/v1")
 	is.NoErr(err)
-	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(resp.StatusCode, http.StatusNoContent) // should be able to reach without trailing slash
+
+	resp, err = http.Get(ts.URL + "/api/v1/")
+	is.NoErr(err)
+	is.Equal(resp.StatusCode, http.StatusNoContent) // should be able to reach with trailing slash
+
+	resp, err = http.Get(ts.URL + "/api/v2/test/oranges")
+	is.NoErr(err)
+	is.Equal(resp.StatusCode, http.StatusPaymentRequired)
 }
 
 func TestMultipleMethodsOnSameRoute(t *testing.T) {

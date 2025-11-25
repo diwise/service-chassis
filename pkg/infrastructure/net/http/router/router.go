@@ -86,14 +86,16 @@ type impl struct {
 }
 
 func concatPrefix(prefix, pattern string) string {
-	if len(pattern) > 0 {
-		if !strings.HasPrefix(pattern, "/") {
-			if !strings.HasSuffix(prefix, "/") {
-				pattern = "/" + pattern
-			}
-		} else if strings.HasSuffix(prefix, "/") {
-			pattern = pattern[1:]
+	if len(pattern) == 0 {
+		pattern = "/"
+	}
+
+	if !strings.HasPrefix(pattern, "/") {
+		if !strings.HasSuffix(prefix, "/") {
+			pattern = "/" + pattern
 		}
+	} else if strings.HasSuffix(prefix, "/") {
+		pattern = pattern[1:]
 	}
 
 	return prefix + pattern
