@@ -111,18 +111,19 @@ func TestMultipleMethodsOnSameRoute(t *testing.T) {
 	mux := http.NewServeMux()
 	r := router.New(mux)
 
-	getCalls := 0
-	headCalls := 0
-
 	r.Route("/api", func(r router.ServeMux) {
 		r.Route("/test", func(r router.ServeMux) {
 			r.Get("", func(w http.ResponseWriter, r *http.Request) {
-				getCalls++
-				w.WriteHeader(http.StatusOK)
+				w.WriteHeader(http.StatusTeapot)
 			})
 			r.Head("", func(w http.ResponseWriter, r *http.Request) {
-				headCalls++
-				w.WriteHeader(http.StatusOK)
+				w.WriteHeader(http.StatusNoContent)
+			})
+			r.Post("", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusCreated)
+			})
+			r.Post("/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusPaymentRequired)
 			})
 		})
 	})
@@ -131,13 +132,16 @@ func TestMultipleMethodsOnSameRoute(t *testing.T) {
 	defer ts.Close()
 
 	resp, _ := http.Get(ts.URL + "/api/test")
-	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(resp.StatusCode, http.StatusTeapot)
 
 	resp, _ = http.Head(ts.URL + "/api/test")
-	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(resp.StatusCode, http.StatusNoContent)
 
-	is.Equal(getCalls, 1)
-	is.Equal(headCalls, 1)
+	resp, _ = http.Post(ts.URL+"/api/test", "application/json", nil)
+	is.Equal(resp.StatusCode, http.StatusCreated)
+
+	resp, _ = http.Post(ts.URL+"/api/test/", "application/json", nil)
+	is.Equal(resp.StatusCode, http.StatusPaymentRequired) // POST with trailing slash should hit different endpoint
 }
 
 func TestAddsSlashesAutomatically(t *testing.T) {

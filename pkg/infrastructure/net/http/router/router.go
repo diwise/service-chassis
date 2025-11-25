@@ -102,15 +102,18 @@ func concatPrefix(prefix, pattern string) string {
 }
 
 func (i *impl) register(method, pattern string, h http.Handler) {
+	fullPattern := i.prefix
 
-	pattern = concatPrefix(i.prefix, pattern)
+	if pattern != "" || method != http.MethodPost {
+		fullPattern = concatPrefix(i.prefix, pattern)
+	}
 
 	if i.tagRoutes {
-		h = otelhttp.WithRouteTag(pattern, h)
+		h = otelhttp.WithRouteTag(fullPattern, h)
 	}
 
 	i.allowedMethods[method] = struct{}{}
-	i.mux.Handle(method+" "+pattern, i.wrap(h))
+	i.mux.Handle(method+" "+fullPattern, i.wrap(h))
 }
 
 func (i *impl) wrap(h http.Handler) http.Handler {
@@ -146,7 +149,7 @@ func (i *impl) Get(pattern string, h http.HandlerFunc) {
 
 func (i *impl) Group(fn func(ServeMux)) {
 	groupMux := http.NewServeMux()
-	groupRouter := New(groupMux, WithTaggedRoutes(i.tagRoutes), WithPrefix(i.prefix))
+	groupRouter := New(groupMux, WithPrefix(i.prefix))
 
 	fn(groupRouter)
 
