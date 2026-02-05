@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type ServeMux interface {
@@ -44,8 +42,7 @@ type ServeMux interface {
 }
 
 type opt struct {
-	prefix    string
-	tagRoutes bool
+	prefix string
 }
 
 func WithPrefix(prefix string) func(*opt) {
@@ -54,10 +51,9 @@ func WithPrefix(prefix string) func(*opt) {
 	}
 }
 
-func WithTaggedRoutes(tagRoutes bool) func(*opt) {
-	return func(o *opt) {
-		o.tagRoutes = tagRoutes
-	}
+// Deprecated: spans are automatically annotated with the route attribute.
+func WithTaggedRoutes(_ bool) func(*opt) {
+	return func(_ *opt) {}
 }
 
 func New(mux *http.ServeMux, options ...func(*opt)) ServeMux {
@@ -71,7 +67,6 @@ func New(mux *http.ServeMux, options ...func(*opt)) ServeMux {
 		prefix:         o.prefix,
 		mux:            mux,
 		middlewares:    make([]func(http.Handler) http.Handler, 0, 16),
-		tagRoutes:      o.tagRoutes,
 		allowedMethods: map[string]struct{}{},
 	}
 }
@@ -80,7 +75,6 @@ type impl struct {
 	prefix      string
 	mux         *http.ServeMux
 	middlewares []func(http.Handler) http.Handler
-	tagRoutes   bool
 
 	allowedMethods map[string]struct{}
 }
@@ -106,10 +100,6 @@ func (i *impl) register(method, pattern string, h http.Handler) {
 
 	if pattern != "" || method != http.MethodPost {
 		fullPattern = concatPrefix(i.prefix, pattern)
-	}
-
-	if i.tagRoutes {
-		h = otelhttp.WithRouteTag(fullPattern, h)
 	}
 
 	i.allowedMethods[method] = struct{}{}
