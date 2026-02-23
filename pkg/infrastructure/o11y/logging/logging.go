@@ -53,29 +53,33 @@ func Init(ctx context.Context, serviceName, serviceVersion string) (context.Cont
 
 func NewLogger(ctx context.Context, serviceName, serviceVersion, logFormat string) (context.Context, *slog.Logger) {
 	logLevel.Set(slog.LevelDebug)
-
 	opts := &slog.HandlerOptions{Level: logLevel}
 
 	var handler slog.Handler
+
+	switch logFormat {
+	case "json":
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	case "text":
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	default:
+		panic("log format " + logFormat + " not supported")
+	}
+
+	handler.WithAttrs([]slog.Attr{
+		slog.String("service", strings.ToLower(serviceName)),
+		slog.String("version", serviceVersion),
+	})
+
 	var logger *slog.Logger
 
 	exporterEndpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-	if exporterEndpoint != "" {
-		logger = otelslog.NewLogger(serviceName)
-	} else {
-		switch logFormat {
-		case "json":
-			handler = slog.NewJSONHandler(os.Stdout, opts)
-		case "text":
-			handler = slog.NewTextHandler(os.Stdout, opts)
-		default:
-			panic("log format " + logFormat + " not supported")
-		}
 
-		logger = slog.New(handler).With(
-			slog.String("service", strings.ToLower(serviceName)),
-			slog.String("version", serviceVersion),
-		)
+	if exporterEndpoint != "" {
+		otelLogHandler := otelslog.NewHandler(serviceName)
+		logger = slog.New(slog.NewMultiHandler(handler, otelLogHandler))
+	} else {
+		logger = slog.New(handler)
 	}
 
 	return NewContextWithLogger(ctx, logger), logger
