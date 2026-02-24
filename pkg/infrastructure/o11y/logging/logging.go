@@ -66,7 +66,7 @@ func NewLogger(ctx context.Context, serviceName, serviceVersion, logFormat strin
 		panic("log format " + logFormat + " not supported")
 	}
 
-	handler.WithAttrs([]slog.Attr{
+	handler = handler.WithAttrs([]slog.Attr{
 		slog.String("service", strings.ToLower(serviceName)),
 		slog.String("version", serviceVersion),
 	})
