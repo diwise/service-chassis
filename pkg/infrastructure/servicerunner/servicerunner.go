@@ -369,6 +369,9 @@ func New[T any](ctx context.Context, svcCfg T, opts ...func(cfg *runnerCfg[T])) 
 
 		if muxConf.pprofEnabled {
 			mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+			mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 		}
 
 		if muxConf.k8sProbesEnabled {
