@@ -164,3 +164,31 @@ func TestAddsSlashesAutomatically(t *testing.T) {
 	resp, _ := http.Get(ts.URL + "/a/b/c")
 	is.Equal(resp.StatusCode, http.StatusOK)
 }
+
+func TestWithAndWithoutSlash(t *testing.T) {
+	is := is.New(t)
+
+	mux := http.NewServeMux()
+	r := router.New(mux)
+
+	r.Route("admin", func(r router.ServeMux) {
+		r.Get("", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusFound)
+		})
+
+		r.Route("/", func(r router.ServeMux) {
+			r.Get("", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+		})
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, _ := http.Get(ts.URL + "/admin")
+	is.Equal(resp.StatusCode, http.StatusFound)
+
+	resp, _ = http.Get(ts.URL + "/admin/")
+	is.Equal(resp.StatusCode, http.StatusNoContent)
+}

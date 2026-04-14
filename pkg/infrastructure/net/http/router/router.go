@@ -68,6 +68,8 @@ func New(mux *http.ServeMux, options ...func(*opt)) ServeMux {
 		mux:            mux,
 		middlewares:    make([]func(http.Handler) http.Handler, 0, 16),
 		allowedMethods: map[string]struct{}{},
+		handlers:       map[string]http.Handler{},
+		patterns:       map[string]struct{}{},
 	}
 }
 
@@ -77,33 +79,66 @@ type impl struct {
 	middlewares []func(http.Handler) http.Handler
 
 	allowedMethods map[string]struct{}
+	handlers       map[string]http.Handler
+	patterns       map[string]struct{}
 }
 
-func concatPrefix(prefix, pattern string) string {
-	if len(pattern) == 0 {
-		pattern = "/"
+func joinPath(prefix, path string) string {
+	if prefix == "" {
+		prefix = "/"
 	}
 
-	if !strings.HasPrefix(pattern, "/") {
-		if !strings.HasSuffix(prefix, "/") {
-			pattern = "/" + pattern
-		}
-	} else if strings.HasSuffix(prefix, "/") {
-		pattern = pattern[1:]
+	if path == "" {
+		return prefix
 	}
 
-	return prefix + pattern
+	if prefix == "/" {
+		return "/" + strings.TrimPrefix(path, "/")
+	}
+
+	if strings.HasSuffix(prefix, "/") {
+		return prefix + strings.TrimPrefix(path, "/")
+	}
+
+	if strings.HasPrefix(path, "/") {
+		return prefix + path
+	}
+
+	return prefix + "/" + path
+}
+
+func exactPattern(path string) string {
+	if path == "" || path == "/" {
+		return "/{$}"
+	}
+
+	if strings.HasSuffix(path, "/") {
+		return path + "{$}"
+	}
+
+	return path
+}
+
+func subtreePattern(path string) string {
+	if path == "" || path == "/" {
+		return "/"
+	}
+
+	if strings.HasSuffix(path, "/") {
+		return path
+	}
+
+	return path + "/"
 }
 
 func (i *impl) register(method, pattern string, h http.Handler) {
-	fullPattern := i.prefix
-
-	if pattern != "" || method != http.MethodPost {
-		fullPattern = concatPrefix(i.prefix, pattern)
-	}
+	fullPattern := exactPattern(joinPath(i.prefix, pattern))
+	wrappedHandler := i.wrap(h)
 
 	i.allowedMethods[method] = struct{}{}
-	i.mux.Handle(method+" "+fullPattern, i.wrap(h))
+	i.handlers[method+" "+fullPattern] = wrappedHandler
+	i.patterns[method+" "+fullPattern] = struct{}{}
+	i.mux.Handle(method+" "+fullPattern, wrappedHandler)
 }
 
 func (i *impl) wrap(h http.Handler) http.Handler {
@@ -139,14 +174,28 @@ func (i *impl) Get(pattern string, h http.HandlerFunc) {
 
 func (i *impl) Group(fn func(ServeMux)) {
 	groupMux := http.NewServeMux()
-	groupRouter := New(groupMux, WithPrefix(i.prefix))
+	groupRouter := New(groupMux, WithPrefix(i.prefix)).(*impl)
 
 	fn(groupRouter)
 
 	handler := i.wrap(groupMux)
+	subtree := subtreePattern(i.prefix)
+	exact := exactPattern(i.prefix)
+	slashExact := exactPattern(subtree)
 
 	for m := range groupRouter.AllowedMethods() {
-		i.register(m, "/", handler)
+		i.allowedMethods[m] = struct{}{}
+		i.mux.Handle(m+" "+subtree, handler)
+		if _, ok := groupRouter.patterns[m+" "+exact]; ok {
+			i.mux.Handle(m+" "+exact, handler)
+		}
+		if slashHandler, ok := groupRouter.handlers[m+" "+slashExact]; ok {
+			i.mux.Handle(m+" "+slashExact, slashHandler)
+			continue
+		}
+		if exactHandler, ok := groupRouter.handlers[m+" "+exact]; ok {
+			i.mux.Handle(m+" "+slashExact, exactHandler)
+		}
 	}
 }
 
@@ -173,7 +222,9 @@ func (i *impl) Put(pattern string, h http.HandlerFunc) {
 func (i *impl) Route(route string, r func(ServeMux)) {
 	copy := *i
 	copy.allowedMethods = map[string]struct{}{}
-	copy.prefix = concatPrefix(copy.prefix, route)
+	copy.handlers = map[string]http.Handler{}
+	copy.patterns = map[string]struct{}{}
+	copy.prefix = joinPath(copy.prefix, route)
 
 	r(&copy)
 
