@@ -290,16 +290,14 @@ func (r *runner[T]) Run(ctx context.Context, opts ...func(*runOpts[T])) (err err
 	}
 
 	if runOptions.worker != nil && context.Cause(ctx) == nil {
-		wg.Add(1)
 
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 
 			workerError := runOptions.worker(ctx, r.svcCfg)
 			if workerError != nil {
 				errChan <- workerError
 			}
-		}()
+		})
 	}
 
 	select {

@@ -150,13 +150,13 @@ func tokenResponse(issuer string) []byte {
 	unixTime := time.Now().Unix()
 
 	accessToken := base64.RawStdEncoding.EncodeToString(
-		[]byte(fmt.Sprintf(accessTokenFmt, unixTime+30, unixTime, unixTime, issuer)),
+		fmt.Appendf(nil, accessTokenFmt, unixTime+30, unixTime, unixTime, issuer),
 	)
 	refreshToken := base64.RawStdEncoding.EncodeToString(
-		[]byte(fmt.Sprintf(refreshTokenFmt, unixTime+300, unixTime, issuer, issuer)),
+		fmt.Appendf(nil, refreshTokenFmt, unixTime+300, unixTime, issuer, issuer),
 	)
 	idToken := base64.RawStdEncoding.EncodeToString(
-		[]byte(fmt.Sprintf(idTokenFmt, unixTime+30, unixTime, unixTime, issuer)),
+		fmt.Appendf(nil, idTokenFmt, unixTime+30, unixTime, unixTime, issuer),
 	)
 	response := fmt.Sprintf(tokenResponseFmt, accessToken, refreshToken, idToken)
 	return []byte(response)

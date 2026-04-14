@@ -131,7 +131,7 @@ func newResource(serviceName, version string) *resource.Resource {
 	)
 }
 
-type headersCarrier map[string]interface{}
+type headersCarrier map[string]any
 
 func (a headersCarrier) Get(key string) string {
 	v, ok := a[key]
@@ -158,13 +158,13 @@ func (a headersCarrier) Keys() []string {
 }
 
 // InjectHeaders injects the tracing info from the context into a new header map
-func InjectHeaders(ctx context.Context) map[string]interface{} {
+func InjectHeaders(ctx context.Context) map[string]any {
 	h := make(headersCarrier)
 	otel.GetTextMapPropagator().Inject(ctx, h)
 	return h
 }
 
 // ExtractHeaders extracts the tracing info from the header and puts it into the context
-func ExtractHeaders(ctx context.Context, headers map[string]interface{}) context.Context {
+func ExtractHeaders(ctx context.Context, headers map[string]any) context.Context {
 	return otel.GetTextMapPropagator().Extract(ctx, headersCarrier(headers))
 }
