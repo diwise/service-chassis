@@ -192,3 +192,76 @@ func TestWithAndWithoutSlash(t *testing.T) {
 	resp, _ = http.Get(ts.URL + "/admin/")
 	is.Equal(resp.StatusCode, http.StatusNoContent)
 }
+
+func TestCallsUsedMiddleware(t *testing.T) {
+	is := is.New(t)
+
+	mux := http.NewServeMux()
+	r := router.New(mux)
+
+	mwcalls := 0
+
+	middleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mwcalls++
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	r.Route("api", func(r router.ServeMux) {
+		r.Group(func(r router.ServeMux) {
+			r.Use(middleware)
+			r.Group(func(r router.ServeMux) {
+				r.Get("", func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				})
+			})
+		})
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, _ := http.Get(ts.URL + "/api")
+	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(mwcalls, 1)
+}
+
+func TestCallsUsedMiddlewareForEmptyAndSlashGroupRoots(t *testing.T) {
+	is := is.New(t)
+
+	mux := http.NewServeMux()
+	r := router.New(mux)
+
+	mwcalls := 0
+
+	middleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mwcalls++
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	r.Route("api", func(r router.ServeMux) {
+		r.Use(middleware)
+		r.Group(func(r router.ServeMux) {
+			r.Get("", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusAccepted)
+			})
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+		})
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, _ := http.Get(ts.URL + "/api")
+	is.Equal(resp.StatusCode, http.StatusAccepted)
+
+	resp, _ = http.Get(ts.URL + "/api/")
+	is.Equal(resp.StatusCode, http.StatusNoContent)
+
+	is.Equal(mwcalls, 2)
+}

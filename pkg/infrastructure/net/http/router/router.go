@@ -178,23 +178,32 @@ func (i *impl) Group(fn func(ServeMux)) {
 
 	fn(groupRouter)
 
-	handler := i.wrap(groupMux)
+	registerSynthetic := func(method, pattern string, h http.Handler) {
+		wrappedHandler := i.wrap(h)
+		key := method + " " + pattern
+
+		i.allowedMethods[method] = struct{}{}
+		i.handlers[key] = wrappedHandler
+		i.patterns[key] = struct{}{}
+		i.mux.Handle(key, wrappedHandler)
+	}
+
+	handler := http.Handler(groupMux)
 	subtree := subtreePattern(i.prefix)
 	exact := exactPattern(i.prefix)
 	slashExact := exactPattern(subtree)
 
 	for m := range groupRouter.AllowedMethods() {
-		i.allowedMethods[m] = struct{}{}
-		i.mux.Handle(m+" "+subtree, handler)
+		registerSynthetic(m, subtree, handler)
 		if _, ok := groupRouter.patterns[m+" "+exact]; ok {
-			i.mux.Handle(m+" "+exact, handler)
+			registerSynthetic(m, exact, handler)
 		}
 		if slashHandler, ok := groupRouter.handlers[m+" "+slashExact]; ok {
-			i.mux.Handle(m+" "+slashExact, slashHandler)
+			registerSynthetic(m, slashExact, slashHandler)
 			continue
 		}
 		if exactHandler, ok := groupRouter.handlers[m+" "+exact]; ok {
-			i.mux.Handle(m+" "+slashExact, exactHandler)
+			registerSynthetic(m, slashExact, exactHandler)
 		}
 	}
 }
