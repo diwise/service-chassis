@@ -10,7 +10,15 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
-func GetVariableOrDefault[T string | int | int32 | int64 | bool | time.Duration](ctx context.Context, envVar string, defaultValue T) T {
+func GetVariableOrDefault(ctx context.Context, envVar string, defaultValue string) string {
+	value := os.Getenv(envVar)
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
+
+func GetVariableOrDefaultT[T string | int | int32 | int64 | bool | time.Duration](ctx context.Context, envVar string, defaultValue T) T {
 	var val T
 	value := os.Getenv(envVar)
 	if value == "" {
