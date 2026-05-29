@@ -22,13 +22,13 @@ func GetVariableOrDefault[T string | int | bool](ctx context.Context, envVar str
 	case int:
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
-			return val
+			return defaultValue
 		}
 		return any(parsed).(T)
 	case bool:
 		parsed, err := strconv.ParseBool(value)
 		if err != nil {
-			return val
+			return defaultValue
 		}
 		return any(parsed).(T)
 	default:
