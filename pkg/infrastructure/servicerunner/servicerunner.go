@@ -290,16 +290,14 @@ func (r *runner[T]) Run(ctx context.Context, opts ...func(*runOpts[T])) (err err
 	}
 
 	if runOptions.worker != nil && context.Cause(ctx) == nil {
-		wg.Add(1)
 
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 
 			workerError := runOptions.worker(ctx, r.svcCfg)
 			if workerError != nil {
 				errChan <- workerError
 			}
-		}()
+		})
 	}
 
 	select {
@@ -369,6 +367,9 @@ func New[T any](ctx context.Context, svcCfg T, opts ...func(cfg *runnerCfg[T])) 
 
 		if muxConf.pprofEnabled {
 			mux.HandleFunc("GET /debug/pprof/", pprof.Index)
+			mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
+			mux.HandleFunc("GET /debug/pprof/symbol", pprof.Symbol)
+			mux.HandleFunc("GET /debug/pprof/trace", pprof.Trace)
 		}
 
 		if muxConf.k8sProbesEnabled {

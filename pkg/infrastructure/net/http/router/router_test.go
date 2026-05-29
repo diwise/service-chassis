@@ -68,6 +68,9 @@ func TestRegisterGroupedRoutes(t *testing.T) {
 	r.Route("/api", func(r router.ServeMux) {
 		r.Route("/v1", func(r router.ServeMux) {
 			r.Group(func(r router.ServeMux) {
+				r.Get("", func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusNoContent)
+				})
 				r.Route("/test", func(r router.ServeMux) {
 					r.Get("/oranges", func(w http.ResponseWriter, r *http.Request) {
 						w.WriteHeader(http.StatusOK)
@@ -79,7 +82,7 @@ func TestRegisterGroupedRoutes(t *testing.T) {
 			r.Group(func(r router.ServeMux) {
 				r.Route("/test", func(r router.ServeMux) {
 					r.Get("/oranges", func(w http.ResponseWriter, r *http.Request) {
-						w.WriteHeader(http.StatusOK)
+						w.WriteHeader(http.StatusPaymentRequired)
 					})
 				})
 			})
@@ -89,9 +92,17 @@ func TestRegisterGroupedRoutes(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/v2/test/oranges")
+	resp, err := http.Get(ts.URL + "/api/v1")
 	is.NoErr(err)
-	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(resp.StatusCode, http.StatusNoContent) // should be able to reach without trailing slash
+
+	resp, err = http.Get(ts.URL + "/api/v1/")
+	is.NoErr(err)
+	is.Equal(resp.StatusCode, http.StatusNoContent) // should be able to reach with trailing slash
+
+	resp, err = http.Get(ts.URL + "/api/v2/test/oranges")
+	is.NoErr(err)
+	is.Equal(resp.StatusCode, http.StatusPaymentRequired)
 }
 
 func TestMultipleMethodsOnSameRoute(t *testing.T) {
@@ -100,18 +111,19 @@ func TestMultipleMethodsOnSameRoute(t *testing.T) {
 	mux := http.NewServeMux()
 	r := router.New(mux)
 
-	getCalls := 0
-	headCalls := 0
-
 	r.Route("/api", func(r router.ServeMux) {
 		r.Route("/test", func(r router.ServeMux) {
 			r.Get("", func(w http.ResponseWriter, r *http.Request) {
-				getCalls++
-				w.WriteHeader(http.StatusOK)
+				w.WriteHeader(http.StatusTeapot)
 			})
 			r.Head("", func(w http.ResponseWriter, r *http.Request) {
-				headCalls++
-				w.WriteHeader(http.StatusOK)
+				w.WriteHeader(http.StatusNoContent)
+			})
+			r.Post("", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusCreated)
+			})
+			r.Post("/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusPaymentRequired)
 			})
 		})
 	})
@@ -120,13 +132,16 @@ func TestMultipleMethodsOnSameRoute(t *testing.T) {
 	defer ts.Close()
 
 	resp, _ := http.Get(ts.URL + "/api/test")
-	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(resp.StatusCode, http.StatusTeapot)
 
 	resp, _ = http.Head(ts.URL + "/api/test")
-	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(resp.StatusCode, http.StatusNoContent)
 
-	is.Equal(getCalls, 1)
-	is.Equal(headCalls, 1)
+	resp, _ = http.Post(ts.URL+"/api/test", "application/json", nil)
+	is.Equal(resp.StatusCode, http.StatusCreated)
+
+	resp, _ = http.Post(ts.URL+"/api/test/", "application/json", nil)
+	is.Equal(resp.StatusCode, http.StatusPaymentRequired) // POST with trailing slash should hit different endpoint
 }
 
 func TestAddsSlashesAutomatically(t *testing.T) {
@@ -148,4 +163,105 @@ func TestAddsSlashesAutomatically(t *testing.T) {
 
 	resp, _ := http.Get(ts.URL + "/a/b/c")
 	is.Equal(resp.StatusCode, http.StatusOK)
+}
+
+func TestWithAndWithoutSlash(t *testing.T) {
+	is := is.New(t)
+
+	mux := http.NewServeMux()
+	r := router.New(mux)
+
+	r.Route("admin", func(r router.ServeMux) {
+		r.Get("", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusFound)
+		})
+
+		r.Route("/", func(r router.ServeMux) {
+			r.Get("", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+		})
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, _ := http.Get(ts.URL + "/admin")
+	is.Equal(resp.StatusCode, http.StatusFound)
+
+	resp, _ = http.Get(ts.URL + "/admin/")
+	is.Equal(resp.StatusCode, http.StatusNoContent)
+}
+
+func TestCallsUsedMiddleware(t *testing.T) {
+	is := is.New(t)
+
+	mux := http.NewServeMux()
+	r := router.New(mux)
+
+	mwcalls := 0
+
+	middleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mwcalls++
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	r.Route("api", func(r router.ServeMux) {
+		r.Group(func(r router.ServeMux) {
+			r.Use(middleware)
+			r.Group(func(r router.ServeMux) {
+				r.Get("", func(w http.ResponseWriter, r *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				})
+			})
+		})
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, _ := http.Get(ts.URL + "/api")
+	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(mwcalls, 1)
+}
+
+func TestCallsUsedMiddlewareForEmptyAndSlashGroupRoots(t *testing.T) {
+	is := is.New(t)
+
+	mux := http.NewServeMux()
+	r := router.New(mux)
+
+	mwcalls := 0
+
+	middleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			mwcalls++
+			next.ServeHTTP(w, r)
+		})
+	}
+
+	r.Route("api", func(r router.ServeMux) {
+		r.Use(middleware)
+		r.Group(func(r router.ServeMux) {
+			r.Get("", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusAccepted)
+			})
+			r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+		})
+	})
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, _ := http.Get(ts.URL + "/api")
+	is.Equal(resp.StatusCode, http.StatusAccepted)
+
+	resp, _ = http.Get(ts.URL + "/api/")
+	is.Equal(resp.StatusCode, http.StatusNoContent)
+
+	is.Equal(mwcalls, 2)
 }

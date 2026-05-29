@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.7.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -100,20 +100,25 @@ func SetSpanStatusOnExit(ctx context.Context, getError func() error) func() {
 }
 
 func Start(ctx context.Context, tracerName, spanName string, getError func() error, opts ...trace.SpanStartOption) (context.Context, func()) {
-	span := trace.SpanFromContext(ctx)
-	if !span.IsRecording() {
-		return ctx, func() {}
+	var tracer trace.Tracer
+
+	if span := trace.SpanFromContext(ctx); span.SpanContext().IsValid() && span.IsRecording() {
+		tracer = span.TracerProvider().Tracer(tracerName)
+	} else {
+		tracer = otel.GetTracerProvider().Tracer(tracerName)
 	}
 
-	ctx, subspan := span.TracerProvider().Tracer(tracerName).Start(ctx, spanName, opts...)
+	ctx, subspan := tracer.Start(ctx, spanName, opts...)
 
 	return ctx, func() {
+		defer subspan.End()
+
 		var err error
 		if getError != nil {
 			err = getError()
 		}
+
 		SetSpanStatus(ctx, err)
-		subspan.End()
 	}
 }
 
@@ -126,7 +131,7 @@ func newResource(serviceName, version string) *resource.Resource {
 	)
 }
 
-type headersCarrier map[string]interface{}
+type headersCarrier map[string]any
 
 func (a headersCarrier) Get(key string) string {
 	v, ok := a[key]
@@ -153,13 +158,13 @@ func (a headersCarrier) Keys() []string {
 }
 
 // InjectHeaders injects the tracing info from the context into a new header map
-func InjectHeaders(ctx context.Context) map[string]interface{} {
+func InjectHeaders(ctx context.Context) map[string]any {
 	h := make(headersCarrier)
 	otel.GetTextMapPropagator().Inject(ctx, h)
 	return h
 }
 
 // ExtractHeaders extracts the tracing info from the header and puts it into the context
-func ExtractHeaders(ctx context.Context, headers map[string]interface{}) context.Context {
+func ExtractHeaders(ctx context.Context, headers map[string]any) context.Context {
 	return otel.GetTextMapPropagator().Extract(ctx, headersCarrier(headers))
 }

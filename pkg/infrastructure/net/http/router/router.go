@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 type ServeMux interface {
@@ -44,8 +42,7 @@ type ServeMux interface {
 }
 
 type opt struct {
-	prefix    string
-	tagRoutes bool
+	prefix string
 }
 
 func WithPrefix(prefix string) func(*opt) {
@@ -54,10 +51,9 @@ func WithPrefix(prefix string) func(*opt) {
 	}
 }
 
-func WithTaggedRoutes(tagRoutes bool) func(*opt) {
-	return func(o *opt) {
-		o.tagRoutes = tagRoutes
-	}
+// Deprecated: spans are automatically annotated with the route attribute.
+func WithTaggedRoutes(_ bool) func(*opt) {
+	return func(_ *opt) {}
 }
 
 func New(mux *http.ServeMux, options ...func(*opt)) ServeMux {
@@ -71,8 +67,9 @@ func New(mux *http.ServeMux, options ...func(*opt)) ServeMux {
 		prefix:         o.prefix,
 		mux:            mux,
 		middlewares:    make([]func(http.Handler) http.Handler, 0, 16),
-		tagRoutes:      o.tagRoutes,
 		allowedMethods: map[string]struct{}{},
+		handlers:       map[string]http.Handler{},
+		patterns:       map[string]struct{}{},
 	}
 }
 
@@ -80,35 +77,68 @@ type impl struct {
 	prefix      string
 	mux         *http.ServeMux
 	middlewares []func(http.Handler) http.Handler
-	tagRoutes   bool
 
 	allowedMethods map[string]struct{}
+	handlers       map[string]http.Handler
+	patterns       map[string]struct{}
 }
 
-func concatPrefix(prefix, pattern string) string {
-	if len(pattern) > 0 {
-		if !strings.HasPrefix(pattern, "/") {
-			if !strings.HasSuffix(prefix, "/") {
-				pattern = "/" + pattern
-			}
-		} else if strings.HasSuffix(prefix, "/") {
-			pattern = pattern[1:]
-		}
+func joinPath(prefix, path string) string {
+	if prefix == "" {
+		prefix = "/"
 	}
 
-	return prefix + pattern
+	if path == "" {
+		return prefix
+	}
+
+	if prefix == "/" {
+		return "/" + strings.TrimPrefix(path, "/")
+	}
+
+	if strings.HasSuffix(prefix, "/") {
+		return prefix + strings.TrimPrefix(path, "/")
+	}
+
+	if strings.HasPrefix(path, "/") {
+		return prefix + path
+	}
+
+	return prefix + "/" + path
+}
+
+func exactPattern(path string) string {
+	if path == "" || path == "/" {
+		return "/{$}"
+	}
+
+	if strings.HasSuffix(path, "/") {
+		return path + "{$}"
+	}
+
+	return path
+}
+
+func subtreePattern(path string) string {
+	if path == "" || path == "/" {
+		return "/"
+	}
+
+	if strings.HasSuffix(path, "/") {
+		return path
+	}
+
+	return path + "/"
 }
 
 func (i *impl) register(method, pattern string, h http.Handler) {
-
-	pattern = concatPrefix(i.prefix, pattern)
-
-	if i.tagRoutes {
-		h = otelhttp.WithRouteTag(pattern, h)
-	}
+	fullPattern := exactPattern(joinPath(i.prefix, pattern))
+	wrappedHandler := i.wrap(h)
 
 	i.allowedMethods[method] = struct{}{}
-	i.mux.Handle(method+" "+pattern, i.wrap(h))
+	i.handlers[method+" "+fullPattern] = wrappedHandler
+	i.patterns[method+" "+fullPattern] = struct{}{}
+	i.mux.Handle(method+" "+fullPattern, wrappedHandler)
 }
 
 func (i *impl) wrap(h http.Handler) http.Handler {
@@ -144,14 +174,37 @@ func (i *impl) Get(pattern string, h http.HandlerFunc) {
 
 func (i *impl) Group(fn func(ServeMux)) {
 	groupMux := http.NewServeMux()
-	groupRouter := New(groupMux, WithTaggedRoutes(i.tagRoutes), WithPrefix(i.prefix))
+	groupRouter := New(groupMux, WithPrefix(i.prefix)).(*impl)
 
 	fn(groupRouter)
 
-	handler := i.wrap(groupMux)
+	registerSynthetic := func(method, pattern string, h http.Handler) {
+		wrappedHandler := i.wrap(h)
+		key := method + " " + pattern
+
+		i.allowedMethods[method] = struct{}{}
+		i.handlers[key] = wrappedHandler
+		i.patterns[key] = struct{}{}
+		i.mux.Handle(key, wrappedHandler)
+	}
+
+	handler := http.Handler(groupMux)
+	subtree := subtreePattern(i.prefix)
+	exact := exactPattern(i.prefix)
+	slashExact := exactPattern(subtree)
 
 	for m := range groupRouter.AllowedMethods() {
-		i.register(m, "/", handler)
+		registerSynthetic(m, subtree, handler)
+		if _, ok := groupRouter.patterns[m+" "+exact]; ok {
+			registerSynthetic(m, exact, handler)
+		}
+		if slashHandler, ok := groupRouter.handlers[m+" "+slashExact]; ok {
+			registerSynthetic(m, slashExact, slashHandler)
+			continue
+		}
+		if exactHandler, ok := groupRouter.handlers[m+" "+exact]; ok {
+			registerSynthetic(m, slashExact, exactHandler)
+		}
 	}
 }
 
@@ -178,7 +231,9 @@ func (i *impl) Put(pattern string, h http.HandlerFunc) {
 func (i *impl) Route(route string, r func(ServeMux)) {
 	copy := *i
 	copy.allowedMethods = map[string]struct{}{}
-	copy.prefix = concatPrefix(copy.prefix, route)
+	copy.handlers = map[string]http.Handler{}
+	copy.patterns = map[string]struct{}{}
+	copy.prefix = joinPath(copy.prefix, route)
 
 	r(&copy)
 
