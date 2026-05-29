@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
-func GetVariableOrDefault[T string | int | bool](ctx context.Context, envVar string, defaultValue T) T {
+func GetVariableOrDefault[T string | int | bool | time.Duration](ctx context.Context, envVar string, defaultValue T) T {
 	var val T
 	value := os.Getenv(envVar)
 	if value == "" {
@@ -27,6 +28,12 @@ func GetVariableOrDefault[T string | int | bool](ctx context.Context, envVar str
 		return any(parsed).(T)
 	case bool:
 		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return defaultValue
+		}
+		return any(parsed).(T)
+	case time.Duration:
+		parsed, err := time.ParseDuration(value)
 		if err != nil {
 			return defaultValue
 		}
