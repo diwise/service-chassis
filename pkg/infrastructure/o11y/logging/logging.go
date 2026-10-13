@@ -8,11 +8,11 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
-	"go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
 type loggerContextKey string
@@ -45,7 +45,7 @@ func Init(ctx context.Context, serviceName, serviceVersion string) (context.Cont
 		// Most log bridges use the global logger provider as the default.
 		// If the global logger provider is not set then a no-op implementation
 		// is used, which fails to generate data.
-		global.SetLoggerProvider(loggerProvider)
+		otel.SetLoggerProvider(loggerProvider)
 	}
 
 	return ctx, cleanup
